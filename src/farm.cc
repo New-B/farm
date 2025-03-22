@@ -27,7 +27,7 @@ int Farm::txBegin() {
   tx_->reset();
   return 0;
 }
-//构造函数，初始化Worker指针w_，事务指针tx_，WorkerHandle智能指针wh_和TxnContext智能指针rtx_
+//开始一个事务，如果已经有事务在运行，则记录日志并返回-1，否则重置事务上下文并返回0
 
 GAddr Farm::txAlloc(size_t size, GAddr addr){
   if (unlikely(tx_ == nullptr)) {
@@ -214,7 +214,7 @@ osize_t Farm::txWrite(GAddr addr, const char* buf, osize_t size) {
 对于远程事务，调用SendRequest方法发送提交请求，并根据请求结果返回0/-1.
 在提交完成之后，无论成功与否，都会将事务指针tx_设置为空，以表示当前没有活跃的事务。*/
 int Farm::txCommit() {
-  if (unlikely(tx_ == nullptr)) {
+  if (unlikely(tx_ == nullptr)) {//检查事务是否正在进行，如果没有事务，则记录致命错误日志并返回-1
     epicLog(LOG_FATAL, "There is no active transaction!!!!!!!");
     return -1;
   }
