@@ -27,7 +27,7 @@ int Farm::txBegin() {
   tx_->reset();
   return 0;
 }
-//开始一个事务，如果已经有事务在运行，则记录日志并返回-1，否则重置事务上下文并返回0
+//构造函数，初始化Worker指针w_，事务指针tx_，WorkerHandle智能指针wh_和TxnContext智能指针rtx_
 
 GAddr Farm::txAlloc(size_t size, GAddr addr){
   if (unlikely(tx_ == nullptr)) {
@@ -108,9 +108,9 @@ osize_t Farm::txRead(GAddr addr, char* buf, osize_t size) {
     after = __atomic_load_n((version_t*)local, __ATOMIC_ACQUIRE); //使用原子操作读取对象的版本号
     do {
       before = after; //将读取的版本号赋值给before
-      while(is_version_wlocked(before)) { //如果对象的版本号被写锁定，则重新加载
+      while(is_version_wlocked(before)) //如果对象的版本号被写锁定，则重新加载
         before = __atomic_load_n((version_t*)local, __ATOMIC_ACQUIRE);
-      runlock_version(&before);//解锁版本号的读锁  
+      runlock_version(&before);//解锁版本号的读锁 
       char* t = (char*)local + sizeof(before);  //指向size的地址
       osize_t s;   //读取数据并设置对象的版本和大小
       t += readInteger(t, s); //将内存区域中存储的size_读取到s中
@@ -214,7 +214,7 @@ osize_t Farm::txWrite(GAddr addr, const char* buf, osize_t size) {
 对于远程事务，调用SendRequest方法发送提交请求，并根据请求结果返回0/-1.
 在提交完成之后，无论成功与否，都会将事务指针tx_设置为空，以表示当前没有活跃的事务。*/
 int Farm::txCommit() {
-  if (unlikely(tx_ == nullptr)) {//检查事务是否正在进行，如果没有事务，则记录致命错误日志并返回-1
+  if (unlikely(tx_ == nullptr)) {
     epicLog(LOG_FATAL, "There is no active transaction!!!!!!!");
     return -1;
   }
