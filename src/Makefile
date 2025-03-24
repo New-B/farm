@@ -1,23 +1,29 @@
 CPP = g++ -std=c++11 -O3
 INCLUDE = -I../include
-LIBS = ./libgalloc.a -libverbs -lpthread
+LIBS = ./libgalloc.a ./libpgas.a -libverbs -lpthread
 CFLAGS += -rdynamic #-DFARM_ENABLED
 
-all: libgalloc.a 
-test: libgalloc.a lock_test example example-r worker master rw_test fence_test benchmark
-build: libgalloc.a libgalloc.so 
+all: libgalloc.a libpgas.a
+test: libgalloc.a libpgas.a lock_test example example-r worker master rw_test fence_test benchmark
+build: libgalloc.a libgalloc.so libpgas.a libpgas.so
 
-SRC = ae.cc client.cc server.cc worker.cc gallocator.cc master.cc tcp.cc worker_handle.cc anet.cc rdma.cc util.cc zmalloc.cc log.cc slabs.cc workrequest.cc  farm.cc farm_txn.cc
-OBJ = ae.o client.o server.o worker.o gallocator.o master.o tcp.o worker_handle.o anet.o rdma.o util.o zmalloc.o log.o slabs.o workrequest.o  farm.o farm_txn.o
+SRC = ae.cc client.cc server.cc worker.cc gallocator.cc master.cc tcp.cc worker_handle.cc anet.cc rdma.cc util.cc zmalloc.cc log.cc slabs.cc workrequest.cc  farm.cc farm_txn.cc pgasapi.cc
+OBJ = ae.o client.o server.o worker.o gallocator.o master.o tcp.o worker_handle.o anet.o rdma.o util.o zmalloc.o log.o slabs.o workrequest.o  farm.o farm_txn.o pgasapi.o
 
 libgalloc.so: $(SRC)
 	$(CPP) $(CFLAGS) $(INCLUDE) -fPIC -shared -o $@ $^ $(LIBS) 
+
+libpgas.so: $(SRC)
+	$(CPP) $(CFLAGS) $(INCLUDE) -fPIC -shared -o $@ $^ $(LIBS)
 
 $(OBJ): %.o : %.cc
 	$(CPP) $< $(CFLAGS) $(INCLUDE) -g -c -o $@ 
 
 libgalloc.a: $(OBJ)
 	ar rcs $@ $^ 
+
+libpgas.a: pgasapi.o
+	ar rcs $@ $^
 
 farm_test: ../test/farm_rw_benchmark.cc
 	$(CPP) $(CFLAGS) $(INCLUDE) -g -o $@ $^ $(LIBS)		

@@ -103,13 +103,13 @@ public:
 		lock.unlock(); //解锁
 	}
 
-	// 创建分配器
-	static GAlloc* CreateAllocator() {
-	//	lock.lock(); // 加锁
-		GAlloc* ret = new GAlloc(worker);
-	//	lock.unlock(); // 解锁
-		return ret;
-	}
+	// // 创建分配器
+	// static GAlloc* CreateAllocator() {
+	// //	lock.lock(); // 加锁
+	// 	GAlloc* ret = new GAlloc(worker);
+	// //	lock.unlock(); // 解锁
+	// 	return ret;
+	// }
 /*
 	//  this function should be call in every thread
 	//  in order to init some per-thread data
@@ -125,7 +125,7 @@ public:
 		lock.unlock(); //解锁
 		return ret; //返回配置指针
 	}
-/*
+
 	// need to call for every thread
 	// c是一个指向Conf对象的常量指针，const关键字表示通过该指针不能修改指向的Conf对象。
 	// =nullptr是默认参数值，表示如果调用函数时没有传递该参数，则指针c默认为空指针
@@ -159,7 +159,7 @@ public:
 		lock.unlock();//解锁
 		return ret;//返回GAlloc对象指针
 	}
-*/
+
 /*
 	//need to call for every thread
 	static GAlloc* CreateAllocator(const Conf& c) { //创建分配器
