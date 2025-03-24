@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 master="172.16.33.32"
-no_node=2
+no_node=1
 no_thread=4
 write_ratio=50
 num_obj=100000
@@ -9,7 +9,7 @@ obj_size=100
 iteration=10000
 txn_nobj=40
 
-exec="/sharenvme/usershome/wangbo/projectsFromPapers/farm/gam/test/farm_cluster_test --ip_master $master --no_node $no_node --no_thread $no_thread --write_ratio $write_ratio --num_obj $num_obj --obj_size $obj_size --iteration $iteration --txn_nobj $txn_nobj"
+exec="/sharenvme/usershome/wangbo/projects/farm/test/farm_cluster_test --ip_master $master --no_node $no_node --no_thread $no_thread --write_ratio $write_ratio --num_obj $num_obj --obj_size $obj_size --iteration $iteration --txn_nobj $txn_nobj"
 
 for (( i = 0; i < no_node; i++)); do
     #worker="172.16.33.$((i + 30))"
@@ -22,7 +22,7 @@ for (( i = 0; i < no_node; i++)); do
         worker="172.16.33.$((i + 34))"
         is_master=0
     fi
-    log="/sharenvme/usershome/wangbo/projectsFromPapers/farm/gam/log/farm-$worker"".log"
+    log="/sharenvme/usershome/wangbo/projects/farm/log/farm-$worker"".log"
     
     cmd="$exec --ip_worker $worker --node_id $node_id --is_master $is_master"
 
