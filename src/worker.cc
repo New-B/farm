@@ -66,7 +66,8 @@ Worker::Worker(const Conf& conf, RdmaResource* res):
   调用anetTcpServer创建TCP服务器并绑定到指定端口和地址。
   如果创建失败，记录错误日志并退出程序。*/
   char neterr[ANET_ERR_LEN];
-  char* bind_addr = conf.worker_bindaddr.length() == 0 ? nullptr : const_cast<char *>(conf.worker_bindaddr.c_str());
+  //char* bind_addr = conf.worker_bindaddr.length() == 0 ? nullptr : const_cast<char *>(conf.worker_bindaddr.c_str());
+  char* bind_addr = conf.worker_ip.length() == 0 ? nullptr : const_cast<char *>(conf.worker_ip.c_str());
   sockfd = anetTcpServer(neterr, conf.worker_port, bind_addr, conf.backlog);
   if (sockfd < 0) {
     epicLog(LOG_WARNING, "Opening port %d (bind_addr %s): %s", conf.worker_port, bind_addr, neterr);

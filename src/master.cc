@@ -37,7 +37,8 @@ Master::Master(const Conf& conf): st(nullptr), workers(), unsynced_workers() {  
   c_str()方法返回的是一个const char*，表示这个指针指向的内容是只读的，不能修改。
   在某些情况下，可能需要将这个只读的字符指针转换为可修改的字符指针（char*）,例如传递给需要char*类型参数的函数。
   使用const_cast可以移除常量性，但需要确保在转换后不会修改字符串内容，否则会导致未定义行为*/
-  char* bind_addr = conf.master_bindaddr.length() == 0 ? nullptr : const_cast<char*>(conf.master_bindaddr.c_str());  
+  char* bind_addr = conf.master_ip.length() == 0 ? nullptr : const_cast<char*>(conf.master_ip.c_str());  
+  //char* bind_addr = conf.master_bindaddr.length() == 0 ? nullptr : const_cast<char*>(conf.master_bindaddr.c_str());  
   //创建一个TCP服务器，绑定到指定的地址和端口，并设置监听队列的最大长度
   sockfd = anetTcpServer(neterr, conf.master_port, bind_addr, conf.backlog); //backlog=511
   //return _anetTcpServer(err, port, bindaddr, AF_INET, backlog);
