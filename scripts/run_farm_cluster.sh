@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 master="172.16.33.32"
-no_node=1
+no_node=2
 no_thread=4
 write_ratio=50
 num_obj=100000
