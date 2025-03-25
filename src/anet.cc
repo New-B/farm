@@ -263,26 +263,26 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
   char portstr[6]; /* strlen("65535") + 1; */
   struct addrinfo hints, *servinfo, *bservinfo, *p, *b;
 
-  snprintf(portstr, sizeof(portstr), "%d", port);
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
+  snprintf(portstr, sizeof(portstr), "%d", port);//将端口号转化为字符串格式存储在portstr中
+  memset(&hints, 0, sizeof(hints));//初始化addrinfo结构体hints
+  hints.ai_family = AF_UNSPEC; //地址族为AF_UNSPEC，表示不限地址族，即IPv4或IPv6
+  hints.ai_socktype = SOCK_STREAM;//套接字类型为流式套接字
 
-  if ((rv = getaddrinfo(addr, portstr, &hints, &servinfo)) != 0) {
+  if ((rv = getaddrinfo(addr, portstr, &hints, &servinfo)) != 0) { //获取目标地址信息
     anetSetError(err, "%s", gai_strerror(rv));
     return ANET_ERR;
   }
-  for (p = servinfo; p != NULL; p = p->ai_next) {
+  for (p = servinfo; p != NULL; p = p->ai_next) { //遍历地址信息，尝试创建套接字并连接
     /* Try to create the socket and to connect it.
      * If we fail in the socket() call, or on connect(), we retry with
      * the next entry in servinfo. */
-    if ((s = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+    if ((s = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)//创建套接字
       continue;
-    if (anetSetReuseAddr(err, s) == ANET_ERR)
+    if (anetSetReuseAddr(err, s) == ANET_ERR)//设置地址重用选项，使用setsockopt函数设置SO_REUSEADDR选项
       goto error;
-    if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err, s) != ANET_OK)
+    if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err, s) != ANET_OK)//如果设置了非阻塞标志，则将套接字设置为非阻塞模式
       goto error;
-    if (source_addr) {
+    if (source_addr) {//遍历源地址信息，尝试绑定到源地址
       int bound = 0;
       /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
       if ((rv = getaddrinfo(source_addr, NULL, &hints, &bservinfo)) != 0) {
@@ -301,21 +301,21 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
         goto error;
       }
     }
-    if (connect(s, p->ai_addr, p->ai_addrlen) == -1) {
+    if (connect(s, p->ai_addr, p->ai_addrlen) == -1) {//尝试连接到目标地址
       /* If the socket is non-blocking, it is ok for connect() to
        * return an EINPROGRESS error here. */
-      if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK)
+      if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK)//如果套接字是非阻塞的，且connect()返回EINPROGRESS错误，则表示连接正在进行中，跳出循环
         goto end;
-      close(s);
+      close(s);//如果连接失败，关闭套接字并继续尝试下一个地址
       s = ANET_ERR;
       continue;
     }
 
     /* If we ended an iteration of the for loop without errors, we
      * have a connected socket. Let's return to the caller. */
-    goto end;
+    goto end; //如果连接成功，跳出循环并返回套接字描述符
   }
-  if (p == NULL)
+  if (p == NULL) //如果遍历完所有地址后仍未成功连接，设置错误信息
     anetSetError(err, "creating socket: %s", strerror(errno));
 
   error: if (s != ANET_ERR) {
@@ -323,14 +323,14 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
     s = ANET_ERR;
   }
 
-  end: freeaddrinfo(servinfo);
+  end: freeaddrinfo(servinfo); //释放地址信息链表
 
   /* Handle best effort binding: if a binding address was used, but it is
    * not possible to create a socket, try again without a binding address. */
-  if (s == ANET_ERR && source_addr && (flags & ANET_CONNECT_BE_BINDING)) {
+  if (s == ANET_ERR && source_addr && (flags & ANET_CONNECT_BE_BINDING)) { //如果使用了源地址绑定，但连接失败，则尝试不使用源地址重新连接
     return anetTcpGenericConnect(err, addr, port, NULL, flags);
   } else {
-    return s;
+    return s;//返回套接字描述符或错误码
   }
 }
 
