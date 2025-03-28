@@ -685,7 +685,7 @@ void Worker::FarmProcessLocalMalloc(WorkRequest *wr) {
     }
   }
 
-  if (remote) { //如果请求时远程分配
+  if (remote) { //如果请求是远程分配
     /* remote allocation */
     Client *cli = GetClient(wr->addr); //获取相应客户端并将任务添加到客户端的任务队列中
     if (likely(cli)) {
@@ -1418,7 +1418,7 @@ void Worker::FarmProcessCommit(Client* c, TxnContext* tx) {
 
   epicAssert(tx);
 
-   (tx->getWriteSet(GetWorkerId()));
+  FarmWrite(tx->getWriteSet(GetWorkerId()));
 
   FarmFinalizeTxn(c, tx);
 }
