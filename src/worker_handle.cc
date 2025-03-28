@@ -8,18 +8,20 @@
 mutex WorkerHandle::lock;
 
 WorkerHandle::WorkerHandle(Worker* w): worker(w), wqueue(w->GetWorkQ()) {
-#if !defined(USE_PIPE_W_TO_H) || (!defined(USE_BOOST_QUEUE) && !defined(USE_PIPE_H_TO_W))
+#if !defined(USE_PIPE_W_TO_H) || (!defined(USE_BOOST_QUEUE) && !defined(USE_PIPE_H_TO_W)) //0||(1&&0)=0
 	int notify_buf_size = sizeof(WorkRequest)+sizeof(int);
 	int ret = posix_memalign((void**)&notify_buf, HARDWARE_CACHE_LINE, notify_buf_size);
 	epicAssert((uint64_t)notify_buf % HARDWARE_CACHE_LINE == 0 && !ret);
 	*notify_buf = 2;
 #endif
-#ifdef USE_PTHREAD_COND
+#ifdef USE_PTHREAD_COND   //0
     pthread_mutex_init(&cond_lock, NULL);
     pthread_cond_init(&cond, NULL);
 	pthread_mutex_lock(&cond_lock);
 #endif
-	RegisterThread();   //函数体内部，只执行这一行代码，用于注册线程
+	/*函数体内部，只执行这一行代码，用于初始化当前线程与工作线程之间的通信机制。通过管道或者通知缓冲区，
+	  当前线程可以向工作线程发送请求或接收工作线程的处理结果。*/
+	RegisterThread();   
 }
 
 WorkerHandle::~WorkerHandle() {
@@ -31,19 +33,22 @@ WorkerHandle::~WorkerHandle() {
 	pthread_mutex_unlock(&cond_lock);
 #endif
 }
-
+/*函数的主要功能是为当前线程注册通信机制，以便与工作线程(Worker)进行交互。它通过创建管道(pipe)和注册通知缓冲区(notify_buf)
+来实现线程间的通信和通知机制*/
 void WorkerHandle::RegisterThread() {
-	if(pipe(send_pipe)) {
+	if(pipe(send_pipe)) {//用于向工作线程发送通知
 		epicLog(LOG_WARNING, "create send pipe failed");
 	}
-	if(pipe(recv_pipe)) {
+	if(pipe(recv_pipe)) {//用于从工作线程接收通知
 		epicLog(LOG_WARNING, "create recv pipe failed");
 	}
+/*将send_pipe[0]注册到工作线程,send_pipe[0]是管道的读取端，工作线程可以通过它接收通知RegisterHandle将管道的读取端注册到工作线程中，
+便于工作线程监听来自当前线程的通知。*/
 #if defined(USE_PIPE_W_TO_H) || defined(USE_PIPE_H_TO_W) || defined(USE_PTHREAD_COND)
-	worker->RegisterHandle(send_pipe[0]);
+	worker->RegisterHandle(send_pipe[0]);//在事件循环中注册一个事件，用于监听管道的读取端
 #endif
-#if !(defined(USE_BOOST_QUEUE) || (defined(USE_PIPE_H_TO_W) && defined(USE_PIPE_W_TO_H)))
-	worker->RegisterNotifyBuf(notify_buf);
+#if !(defined(USE_BOOST_QUEUE) || (defined(USE_PIPE_H_TO_W) && defined(USE_PIPE_W_TO_H)))//!(0||(1&&1))=0
+	worker->RegisterNotifyBuf(notify_buf);//将通知缓冲区注册到工作线程，Notify_buf是一个共享的内存缓冲区，用于线程间的通知机制
 #endif
 }
 

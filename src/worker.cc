@@ -30,7 +30,7 @@ void Worker::ProcessLocalRequest(aeEventLoop *el, int fd, void *data, int mask) 
   }
   epicLog(LOG_DEBUG, "receive local request %c", buf[0]); //记录接收到的本地请求的日志
 
-  Worker* w = (Worker*)data; //获取Worker对象指针w
+  Worker* w = (Worker*)data; //获取Worker对象指针w，通过将data转换为Worker*类型，可以在ProcessLocalRequest函数中访问当前Worker对象的成员变量和方法
   WorkRequest* wr; //定义一个WorkRequest指针wr
   int i = 0;
   while(w->wqueue->pop(wr)) { //从工作队列中取出一个工作请求wr并处理，如果取出成功，执行循环体
@@ -1418,7 +1418,7 @@ void Worker::FarmProcessCommit(Client* c, TxnContext* tx) {
 
   epicAssert(tx);
 
-  FarmWrite(tx->getWriteSet(GetWorkerId()));
+   (tx->getWriteSet(GetWorkerId()));
 
   FarmFinalizeTxn(c, tx);
 }

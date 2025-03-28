@@ -27,12 +27,12 @@ typedef uint64_t version_t;
 #define RWLOCK (RLOCK | WLOCK)
 //将版本号的写锁位清零
 static inline void wunlock_version(version_t* v) {
-    version_t v1 = WLOCK;
+    version_t v1 = RLOCK;
     (*v) &= ((v1 << VBITS) | MAX_VERSION);
 }
 //将版本号的读锁位清零
 static inline void runlock_version(version_t* v) {
-    version_t v1 = RLOCK;
+    version_t v1 = WLOCK;
     (*v) &= ((v1 << VBITS) | MAX_VERSION);
 }
 //将版本号的所有锁位清零 
