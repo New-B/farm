@@ -243,17 +243,39 @@ RdmaResource* RdmaResourceFactory::GetRdmaResource (
 
   ibv_device **list = ibv_get_device_list(NULL); //调用ibv_get_device_list()获取设备列表
 
-  if (!devName && list[0]) //如果设备名称devName仍为空且设备列表不为空，则将第一个设备名称设置为默认设备名称defaultDevname
-    devName = defaultDevname = ibv_get_device_name (list[0]);
+  if (!devName && list[0]){
+    for (int i = 0; list[i]; ++i) {
+      epicLog(LOG_INFO, "RDMA device: %s\n", ibv_get_device_name(list[i]));
 
-  for (int i = 0; list[i]; ++i) {//遍历设备列表，查找与devName匹配的RDMA资源设备
-    if (!strcmp(devName, ibv_get_device_name(list[i]))) {
-      try { //如果找到匹配的设备，尝试创建新的RdmaResource对象
-        RdmaResource *ret = new RdmaResource (list[i], isMaster);
-        resources.push_back(ret); //如果创建成功，将新创建的RdmaResource对象添加到resources向量中
-        return ret; //并返回该对象
-      } catch (int err) { //如果创建失败，记录日志并返回NULL
-        epicLog(LOG_FATAL, "Unable to get rdam resource\n");
+      struct ibv_context *context = ibv_open_device(list[i]);
+      if (!context) {
+        epicLog(LOG_WARNING, "Unable to open device %s\n", ibv_get_device_name(list[i]));
+        continue;// 如果设备无法打开，跳过该设备
+      }
+
+      struct ibv_port_attr port_attr;
+      if (ibv_query_port(context, 1, &port_attr)) { // 查询端口 1 的属性
+        epicLog(LOG_WARNING, "Unable to query port for device %s", ibv_get_device_name(list[i]));
+        ibv_close_device(context);
+        continue; // 如果查询端口失败，跳过该设备
+      }
+
+      if (port_attr.state != IBV_PORT_ACTIVE) { // 检查端口状态是否为活动状态
+        epicLog(LOG_WARNING, "Device %s is not active (state: %d)", ibv_get_device_name(list[i]), port_attr.state);
+        ibv_close_device(context);
+        continue; // 如果端口不是活动状态，跳过该设备
+      }
+
+      devName = defaultDevname = ibv_get_device_name (list[i]);
+
+      try { // 如果找到匹配的设备且设备可用，尝试创建新的 RdmaResource 对象
+        RdmaResource *ret = new RdmaResource(list[i], isMaster);
+        resources.push_back(ret); // 如果创建成功，将新创建的 RdmaResource 对象添加到 resources 向量中
+        ibv_close_device(context); // 关闭设备上下文
+        return ret; // 并返回该对象
+      } catch (int err) { // 如果创建失败，记录日志并返回 NULL
+        epicLog(LOG_FATAL, "Unable to get RDMA resource for device %s", ibv_get_device_name(list[i]));
+        ibv_close_device(context);
         return NULL;
       }
     }
