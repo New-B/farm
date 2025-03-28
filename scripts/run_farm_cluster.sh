@@ -2,11 +2,11 @@
 
 master="172.16.33.32"
 no_node=2
-no_thread=4
+no_thread=1
 write_ratio=50
-num_obj=100000
+num_obj=1
 obj_size=100
-iteration=10000
+iteration=1
 txn_nobj=40
 
 exec="/sharenvme/usershome/wangbo/projects/farm/test/farm_cluster_test --ip_master $master --no_node $no_node --no_thread $no_thread --write_ratio $write_ratio --num_obj $num_obj --obj_size $obj_size --iteration $iteration --txn_nobj $txn_nobj"
