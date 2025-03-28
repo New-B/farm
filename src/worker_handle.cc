@@ -81,6 +81,8 @@ int WorkerHandle::SendRequest(WorkRequest* wr) { //WorkRequest* wr:工作请求�
 
 //根据不同的配置选项，将工作请求to推送到工作队列wqueue，并设置相应地通知机制。
 #ifdef USE_PIPE_W_TO_H 	//使用管道通知
+	/*这意味着wr->flag和recv_pipe[1]指向的是同一个文件描述符，代表管道的写端。因此，无论是通过wr->flag还是直接使用recv_pipe[1]，最终的操作都市向管道的写端写入数据。
+	管道是一种进程或线程间通信的机制，管道有两个端点，读端(recv_pipe[0])和写端(recv_pipe[1])，数据只能通过写端写入，通过读端读取。文件描述符石管道端点的引用，多个文件描述符可以指向同一个管道端点。*/
 	to->fd = recv_pipe[1];
 	wqueue->push(to);  //将工作请求to推送到工作队列wqueue
 #elif defined(USE_PTHREAD_COND) //使用条件变量通知——未定义

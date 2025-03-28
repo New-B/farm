@@ -22,8 +22,8 @@ int Farm::txBegin() {
     epicLog(LOG_INFO, "There is already a transaction running; You may want to call txCommit before start a new one!!!");
     return -1;
   }
-
-  tx_ = rtx_.get();
+  //智能指针会在对象销毁时自动释放对象的内存，而普通指针不会管理对象的生命周期，需要手动释放内存。
+  tx_ = rtx_.get();//rtx_是一个智能指针，而tx_是一个原始指针，为了让tx_指向TxnContext对象，需要调用rtx_.get()获取TxnContext对象的原始指针
   tx_->reset();
   return 0;
 }
@@ -41,7 +41,7 @@ GAddr Farm::txAlloc(size_t size, GAddr addr){
   // each object is associated with version and size
   tx_->wr_->size = size + sizeof(version_t) + sizeof(osize_t);
 
-  wh_->SendRequest(tx_->wr_);
+  wh_->SendRequest(tx_->wr_);//发送内存分配请求
 
   if (tx_->wr_->status == SUCCESS) {
     addr = tx_->wr_->addr;

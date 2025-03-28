@@ -321,8 +321,10 @@ Client* Worker::GetClient(GAddr addr) {
 }
 
 int Worker::Notify(WorkRequest* wr) {
-  if(!(wr->flag & ASYNC)) {
+  /*wr->flag表示工作请求的标志位，可能包含多个标志(例如同步或异步标志)。ASYNC一个标志位，用于指示工作请求是否是异步请求。此处通过按位与操作检查ASYNC标志是否被设置。*/
+  if(!(wr->flag & ASYNC)) {//条件成立，表示ASYNC标志未被设置，即工作请求是同步请求 
 #ifdef USE_PIPE_W_TO_H
+    /*程序通过wr->fd写入数据，而不是直接使用recv_pipe[1]，是可以成功实现线程之间的通知功能的。原因在于wr->fd实际上是指向recv_pipe[1]的文件描述符，因此写入wr->fd等价于写入recv_pipe[1]。*/
     if(write(wr->fd, "r", 1) != 1) {
       epicLog(LOG_WARNING, "writing to pipe error (%d:%s)", errno, strerror(errno));
       return -1;
@@ -451,17 +453,17 @@ void Worker::FarmAddTask(Client* c, TxnContext* tx) {
 }
 
 void Worker::FarmAllocateTxnId(WorkRequest *wr) {
-  if (wr->id == -1) {
+  if (wr->id == -1) {//检查事务是否是新事务，如果是新事务，分配事务ID
     // a new transcation arrives
-    epicAssert( tx_status_.size() == wr_psn);
+    epicAssert( tx_status_.size() == wr_psn);//确保tx_status_和local_txns_的大小与当前事务序列号wr_psn一致，这是为了确保数据结构的状态是正确的
     epicAssert( local_txns_.size() == wr_psn);
-    local_txns_[wr_psn] = wr->tx;
-    tx_status_[wr_psn] = std::move(std::unique_ptr<TxnCommitStatus>(new TxnCommitStatus));
-    wr->id = wr_psn++;
+    local_txns_[wr_psn] = wr->tx;//将事务上下文wr->tx存储到local_txns_容器中
+    tx_status_[wr_psn] = std::move(std::unique_ptr<TxnCommitStatus>(new TxnCommitStatus)); //创建一个新的TxnCommitStatus对象，并存储到tx_status_容器中
+    wr->id = wr_psn++;//将当前事务序列号wr_psn赋值给wr->id，作为该事务的唯一标识。将wr_psn加1，为下一事务准备
   }
 }
+
 //该函数用于处理本地的工作请求。它根据请求的操作类型(op)调用相应的处理函数来处理请求
-//
 void Worker::FarmProcessLocalRequest(WorkRequest *wr) {
   FarmAllocateTxnId(wr); //调用FarmAllocateTxnId函数为工作请求wr分配事务ID
   switch(wr->op) { //根据操作类型调用相应的处理函数
@@ -678,7 +680,8 @@ void Worker::FarmProcessLocalMalloc(WorkRequest *wr) {
       remote = false; //设置remote标志为false，表示请求时本地分配
       wr->status = SUCCESS;  //设置请求状态为SUCCESS
       this->ghost_size += wr->size; //更新ghost_size
-      wr->op = FARM_MALLOC_REPLY; //设置操作类型为FARM_MALLOC_REPLY
+      wr->op = FARM_MALLOC_REPLY; //设置工作请求的操作类型为FARM_MALLOC_REPLY
+      /*ghost_size表示当前工作节点(Worker)中已分配但未与主节点同步的内存大小，conf->ghost_th表示一个阈值，从配置中读取，用于限制ghost_size的最大值*/
       if (ghost_size > conf->ghost_th) SyncMaster(); //检查是否需要同步主节点
     } else {
       wr->addr = Gnullptr; //如果内存分配失败，将请求地址设置为Gnullptr
@@ -1591,10 +1594,10 @@ void* Worker::FarmMalloc(osize_t size, osize_t align) { //size：要分配的内
   if (likely(addr)) { //如果内存分配成功，进行内存对齐和初始化
     uintptr_t p = (uintptr_t)addr + sbits + obits;
     offset = (vbits - p % vbits) % vbits; //计算内存对齐的偏移量offset
-    addr += offset; //将内存地址addr加上偏移量offset
+    addr += offset; //将内存地址addr加上偏移量offset，得到对齐后的内存地址
     epicAssert(offset + obits <= vbits); //确保偏移量和obits的和不超过vbits
     size += (vbits - offset - obits); //更新size，包括对齐后的大小
-    addr += appendInteger(addr, offset, size); //调用appendInteger函数将偏移量和大小存储在内存中
+    addr += appendInteger(addr, offset, size); //调用appendInteger函数将偏移量和大小存储在内存中，方便后续使用
     memset(addr, 0, size); //使用memset将分配的内存初始化为0
     epicAssert((uintptr_t)addr % vbits == 0); //确保内存地址addr对齐到vbits
     //__atomic_store_n((version_t*)addr, 0, __ATOMIC_RELAXED);
