@@ -199,8 +199,10 @@ class Object {
 4.同步和重置：提供了重置事务上下文的方法，用于事务的重新开始。*/
 class TxnContext{
     private:
+        /*std::unordered_map是C++标准库中的一种关联容器，提供了基于哈希表实现的键值对存储。每个元素由一个key和一个value组成，key用于唯一标识元素，value是与可以相关联的数据。
+        std::unordered_map使用哈希表存储数据，因此查找、插入、删除操作的平均时间复杂度为O(1)。元素的存储顺序不固定，取决于哈希函数的结果。*/
         //写集合，按工作节点ID(uint16_t)分组,存储每个地址(GAddr)对应的对象。
-        std::unordered_map<uint16_t, std::unordered_map<GAddr, std::shared_ptr<Object>>> write_set_;
+        std::unordered_map<uint16_t, std::unordered_map<GAddr, std::shared_ptr<Object>>> write_set_;//<工作节点id，该工作节点的读集合<全局地址，与地址关联的对象>>，使用智能指针管理对象的生命周期
         //读集合，按工作节点ID(uint16_t)分组,存储每个地址(GAddr)对应的对象。
         std::unordered_map<uint16_t, std::unordered_map<GAddr, std::shared_ptr<Object>>> read_set_;
         //用于存储事务相关的缓冲区
