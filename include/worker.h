@@ -23,11 +23,15 @@
 
 #include "farm_txn.h"
 
+/*该结构体的设计意义在于管理和跟踪分布式事务的提交状态，它在分布式系统中用于协调多个工作节点之间的事务提交过程
+在分布式事务中，常用的提交协议是两阶段提交协议，TxnCommitStatus可以很好地支持这一协议：
+第一阶段（准备阶段）：每个工作节点执行事务操作并返回准备状态；progress_用于记录每个节点是否已准备好；remaining_workers_用于跟踪尚未准备返回状态的节点数量。
+第二阶段（提交阶段）：若所有节点都返回准备状态，则协调者通知所有节点提交事务；若有任何节点返回失败，则协调者通知所有节点回滚事务；success记录事务是否成功。*/
 struct TxnCommitStatus{
-  std::unordered_map<uint16_t, int> progress_;  //worker id to progress 记录事务提交进度
-  int remaining_workers_; //剩余工作节点数
+  std::unordered_map<uint16_t, int> progress_;  //worker id to progress 记录每个工作节点的事务提交进度，键：工作节点id；值：该节点的事务提交进度
+  int remaining_workers_; //记录当前事务中尚未完成事务的工作节点数量，为0时，表示所有几点都已完成事务提交，可以进行下一步操作
   int success;  //事务是否成功标志
-  bool local; //是否为本地事务
+  bool local; //是否为本地事务的标志
 };
 //这些宏定义了请求的类型和标志
 #define REQUEST_WRITE_IMM 1

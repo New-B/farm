@@ -807,7 +807,7 @@ void Worker::FarmProcessReadReply(Client* c, TxnContext* tx) {
  * @param wr: a work request 
  */
 void Worker::FarmProcessLocalCommit(WorkRequest* wr) {
-  epicLog(LOG_DEBUG, "Worker %d tries to commit txn", GetWorkerId(), wr->id);
+  epicLog(LOG_DEBUG, "Worker %d tries to commit txn %d", GetWorkerId(), wr->id);
   TxnCommitStatus* ts;
 
   if (wr->op == COMMIT) {
