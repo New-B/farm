@@ -803,29 +803,29 @@ void Worker::FarmProcessReadReply(Client* c, TxnContext* tx) {
 
 /**
  * @brief perform twp-phase commit on behalf of an application thread
- *
+ *处理本地事务的提交请求。它根据事务的类型（本地或分布式）初始化事务状态，并启动两阶段提交协议的准备阶段（Prepare Phase）。
  * @param wr: a work request 
  */
 void Worker::FarmProcessLocalCommit(WorkRequest* wr) {
   epicLog(LOG_DEBUG, "Worker %d tries to commit txn %d", GetWorkerId(), wr->id);
   TxnCommitStatus* ts;
 
-  if (wr->op == COMMIT) {
+  if (wr->op == COMMIT) {//分布式事务需要事务ID来标识和协调多个节点的操作，本地事务只涉及单个节点的操作，不需要事务ID
     // handler the case where id equal to -1
-    FarmAllocateTxnId(wr);
-    ts = tx_status_[wr->id].get();
+    FarmAllocateTxnId(wr); //为事务分配唯一ID。只有在事务提交时，系统才需要事务ID来标识和协调事务的状态。事务ID的分配是提交阶段的必要条件，而不是事务产生时的必要条件
+    ts = tx_status_[wr->id].get(); //获取与事务ID对应的事务提交状态
 
     // if op is not COMMIT, then this is performed in app thread;
     // otherwise this is performed in worker thread
-    ts->local = false;
+    ts->local = false; //标记为分布式事务
   } else {
     ts = new TxnCommitStatus;
     ts->local = true;
   }
 
-  ts->progress_.clear();
+  ts->progress_.clear();  //清空事务的进度记录，progress_是一个std::unordered_map<uint16_t, uint32_t>类型的容器，用于记录每个工作节点的事务提交进度
 
-  FarmPrepare(wr->tx, ts);
+  FarmPrepare(wr->tx, ts);//启动两阶段提交协议的准备阶段，参数为事务上下文和事务提交状态
 }
 
 /**
@@ -865,7 +865,8 @@ void Worker::FarmResumeTxn(Client* c) {
  * contained in the write set is either locked or changed. 
  * If yes, abort the transaction without sending prepare
  * messages to other workers. 
- *
+ * 该函数实现了分布式事务的两阶提交协议的第一阶段：准备阶段。这一阶段，系统会检查事务的写集合，确保所有相关对象可以被锁定且未发生冲突。
+ * 如果事务涉及远程节点，还会向这些节点发送准备请求。
  * @param s
  * @param c
  *
@@ -880,24 +881,24 @@ void Worker::FarmPrepare(TxnContext* tx, TxnCommitStatus* ts){
   epicLog(LOG_DEBUG, "Txn %d enters PREPARE phase", wr->id);
 
   std::vector<uint16_t> wids;
-  uint16_t wid = GetWorkerId();
+  uint16_t wid = GetWorkerId(); //获取当前工作节点ID
 
-  tx->getWidForWobj(wids);
+  tx->getWidForWobj(wids); //获取事务写集合涉及的所有工作节点ID
 
-  ts->success = 1;
-  ts->remaining_workers_ = wids.size();
+  ts->success = 1; //初始化事务状态为成功 ，如果在准备阶段发现冲突或其他问题，会将其设置为失败（0）
+  ts->remaining_workers_ = wids.size();//设置剩余工作节点数
 
   for (auto& p: wids) {
-    ts->progress_[p] = 0;
+    ts->progress_[p] = 0; //初始化每个节点的事务提交进度为0.
   }
 
   // remote prepare
-  for (auto& p: wids) {
+  for (auto& p: wids) { //如果事务涉及远程节点，调用FarmPrepare(c, tx)向远程节点发送准备请求
     if (p != wid) {
-      Client* c = FindClientWid(p);
-      if (likely(c)) FarmPrepare(c, tx);
+      Client* c = FindClientWid(p); //查找远程节点的客户端
+      if (likely(c)) FarmPrepare(c, tx); //向远程节点发送准备请求
       else {
-        wr->status == COMMIT_FAILED;
+        wr->status == COMMIT_FAILED; //如果找不到远程节点的客户端，设置请求状态为COMMIT_FAILED，标记事务失败
         return;
       }
     }
@@ -905,15 +906,16 @@ void Worker::FarmPrepare(TxnContext* tx, TxnCommitStatus* ts){
 
   if (wids.empty() || (wids.size() == 1 && wids[0] == wid))
     // local transaction
-    FarmResumePrepare(tx, ts);
+    FarmResumePrepare(tx, ts); //如果事务只涉及本地节点，调用FarmResumePrepare(tx, ts)继续本地的准备阶段
 }
 
 
 
 /**
  * @brief resume prepare phase at local worker after recv'ed all prepare
- * replies from remote workers
- *
+ * replies from remote workers 在本地节点完成准备阶段，检查写集合是否冲突
+ * 该函数用于在本地节点完成事务的准备阶段，它会检查事务的写集合，确保相关对象可以被锁定且未发生冲突。
+ * 如果发生冲突，则中止事务；如果本地准备成功，则进入验证阶段。
  * @param tx
  */
 void Worker::FarmResumePrepare(TxnContext* tx, TxnCommitStatus* ts) {
@@ -921,33 +923,33 @@ void Worker::FarmResumePrepare(TxnContext* tx, TxnCommitStatus* ts) {
   WorkRequest* wr = tx->wr_;
 
   if (ts == nullptr) {
-    epicAssert(wr->id != -1);
-    ts = this->tx_status_[wr->id].get();
+    epicAssert(wr->id != -1); //使用断言确保事务ID有效
+    ts = this->tx_status_[wr->id].get(); //如果事务提交状态为空，则通过事务ID从tx_status_容器中获取事务提交状态
   }
-
+  /*确保剩余工作节点数为0或1:0:说明所有远程节点的准备阶段已经完成。1:当前节点是唯一需要处理的节点。*/
   epicAssert(ts->remaining_workers_ == 0 || ts->remaining_workers_ == 1);
 
   int locked = 0;
 
-  if (!ts->success) 
+  if (!ts->success) //如果事务状态为失败，直接中止事务
     goto abort;
 
   // write sets processed in local worker
-  if (ts->remaining_workers_ == 1) {
+  if (ts->remaining_workers_ == 1) { //如果当前节点是唯一需要处理的节点，则处理本地写集合
 
     epicAssert(tx->getNumWobjForWid(GetWorkerId()) > 0);
 
-    std::unordered_map<GAddr, std::shared_ptr<Object>>& wset = tx->getWriteSet(GetWorkerId());
+    std::unordered_map<GAddr, std::shared_ptr<Object>>& wset = tx->getWriteSet(GetWorkerId());//获取当前节点的写集合
     version_t v;
     osize_t s;
     char* local;
-    for (auto& e: wset) {
+    for (auto& e: wset) {  //遍历写集合中的每个对象
       local = (char*)(ToLocal(e.first));
       //readInteger(local, v, s);
       readInteger(local+sizeof(v), s);
-      if (FarmRLock(e.first)) {
-        ++locked;
-        if ( s == -1 || FarmAllocSize(local) < e.second->getTotalSize()) 
+      if (FarmRLock(e.first)) {//调用FarmRLock尝试加读锁，确保对象未被其他事务锁定 检查写集合中的每个对象是否被锁定或发生更改
+        ++locked; 
+        if ( s == -1 || FarmAllocSize(local) < e.second->getTotalSize()) //检查对象的大小是否有效，且分配的内存足够
         {
           //v = __atomic_load_n((version_t*)ToLocal(e.first), __ATOMIC_RELAXED);
           epicLog(LOG_DEBUG, "Address %lx, version = %lx, size = %d, allocated size = %d, objcet size = %d ",
@@ -955,7 +957,7 @@ void Worker::FarmResumePrepare(TxnContext* tx, TxnCommitStatus* ts) {
               s,
               FarmAllocSize(local),
               e.second->getTotalSize());
-          goto abort;
+          goto abort;//如果发生冲突或异常，跳转到中止事务
         }
       } else {
         epicLog(LOG_DEBUG, "Address %lx has been locked by another txn", e.first);
@@ -964,13 +966,13 @@ void Worker::FarmResumePrepare(TxnContext* tx, TxnCommitStatus* ts) {
     }
   }
 
-  wr->op = VALIDATE;
-  wr->status = SUCCESS;
-  FarmValidate(tx, ts);
+  wr->op = VALIDATE; //如果本地准备成功，设置工作请求的操作类型为VALIDATE 
+  wr->status = SUCCESS;  //将事务状态设置为成功
+  FarmValidate(tx, ts);//调用FarmValidate函数，进入验证阶段
   return;
 
-abort:
-  if (ts->remaining_workers_ == 1) {
+abort: //如果事务准备失败
+  if (ts->remaining_workers_ == 1) {//如果当前节点是唯一需要处理的节点，释放写集合中已经枷锁的对象
     std::unordered_map<GAddr, std::shared_ptr<Object>>& wset = tx->getWriteSet(GetWorkerId());
     int i = 0;
     for (auto& p : wset) {
@@ -980,9 +982,9 @@ abort:
     } 
     wset.clear();
   }
-  ts->success = 0;
-  wr->op = Work::ABORT;
-  FarmCommitOrAbort(tx, ts);
+  ts->success = 0; //将事务状态设置为失败
+  wr->op = Work::ABORT;//将工作请求的操作类型设置为ABORT 
+  FarmCommitOrAbort(tx, ts); //进入提交或回滚阶段
 }
 
 
@@ -1160,46 +1162,46 @@ void Worker::FarmProcessAcknowledge(Client* c, TxnContext* tx) {
 }
 
 /**
- * @brief validate pahse; similar to FarmPrepare
- *
+ * @brief validate pahse; similar to FarmPrepare 实现两阶段提交的验证阶段，检查事务的读集合是否冲突
+ * 验证阶段：系统会检查事务的读集合，确保所有相关对象的版本号为发生变化，如果发现冲突，则中止事务；如果验证成功，则进入提交阶段。
  * @param s
  */
 void Worker::FarmValidate(TxnContext* tx, TxnCommitStatus* ts) {
 
   // mark the operation code for the respective work request
-  WorkRequest* wr = tx->wr_;
+  WorkRequest* wr = tx->wr_; //获取事务的工作请求
 
-  epicLog(LOG_DEBUG, "Txn %d enters VALIDATE phase", wr->id);
+  epicLog(LOG_DEBUG, "Txn %d enters VALIDATE phase", wr->id); //记录日志,日志中包含事务的唯一标识符
 
   std::vector<uint16_t> wids;
-  uint16_t wid = GetWorkerId();
+  uint16_t wid = GetWorkerId(); //获取当前工作节点ID
 
-  tx->getWidForRobj(wids);
+  tx->getWidForRobj(wids); //获取事务涉及的所有工作节点
   for (auto& p: wids) {
-    ts->progress_[p] = 0;
+    ts->progress_[p] = 0;//初始化每个工作节点的验证进度为0
   }
 
-  ts->remaining_workers_ = wids.size();
-  epicAssert(ts->success == 1); 
+  ts->remaining_workers_ = wids.size(); //设置剩余工作节点数为wids.size()，标识事务涉及的节点总数
+  epicAssert(ts->success == 1); //确保事务状态为成功
 
-  if (tx->getNumRobjForWid(wid) > 0) {
+  if (tx->getNumRobjForWid(wid) > 0) {//如果当前节点的读集合不为空，则进行本地验证
     /* local validate*/
 
-    std::unordered_map<GAddr, std::shared_ptr<Object>>& rset = tx->getReadSet(wid);
+    std::unordered_map<GAddr, std::shared_ptr<Object>>& rset = tx->getReadSet(wid); //获取当前节点的读集合
 
     version_t v, rv;
-    for (auto& e: rset) {
+    for (auto& e: rset) { //遍历读集合中的每个对象
 
-      v = __atomic_load_n((version_t*)ToLocal(e.first), __ATOMIC_RELAXED);
+      v = __atomic_load_n((version_t*)ToLocal(e.first), __ATOMIC_RELAXED); //获取对象的当前版本号 
 
-      version_t v1 = e.second->getVersion();
-      epicAssert(v1 != 0 && !is_version_locked(v1));
+      version_t v1 = e.second->getVersion(); //获取事务开始时记录的版本号
+      epicAssert(v1 != 0 && !is_version_locked(v1)); //确保版本号有效且未被锁定
 
       // if versions do not match or object has been free'ed or locked, abort
-      if (is_version_diff(v1, v) || (is_version_rlocked(v) && !tx->containWritable(e.first))) {
+      if (is_version_diff(v1, v) || (is_version_rlocked(v) && !tx->containWritable(e.first))) { //如果发现本号不匹配或对象被锁定，则中止事务。 
         // abort the tx; we cannot immediately return to the
         // application as there may have been some objects locked by
-        // this transaction
+        // this transaction  如果发现本号不匹配或对象被锁定，则中止事务。
         epicLog(LOG_INFO, "Fail to validate %lx, rv = %lx, %s", e.first, v1, e.second->toString());
         wr->op = Work::ABORT;
         ts->success = 0;
@@ -1208,23 +1210,23 @@ void Worker::FarmValidate(TxnContext* tx, TxnCommitStatus* ts) {
       }
     }
 
-    ts->remaining_workers_--; 
+    ts->remaining_workers_--; //如果验证成功，减少剩余工作节点数
   }
 
-  if (ts->remaining_workers_ == 0) {
+  if (ts->remaining_workers_ == 0) {//如果只涉及本地节点，说明事务只涉及本地节点，直接进入提交阶段
     // only local prepare
     // enter commit phase
-    wr->op = COMMIT;
-    FarmCommitOrAbort(tx, ts);
+    wr->op = COMMIT; //设置操作类型为COMMIT，
+    FarmCommitOrAbort(tx, ts);//调用函数进入提交阶段
     return;
   }
 
   // remote validate
-  for (auto& p: wids) {
+  for (auto& p: wids) { //如果事务涉及远程节点，遍历所有远程节点ID
     if (p == wid) continue;
 
-    Client* c = FindClientWid(p);
-    if(likely(c))
+    Client* c = FindClientWid(p); //查找远程节点的客户端
+    if(likely(c)) //如果找到客户端对象，调用FarmValidate(c, tx)向远程节点发送验证请求
       FarmValidate(c, tx);
   }
 
@@ -1338,59 +1340,58 @@ reply:
 
 
 /**
- * @brief commit or abort the transaction
- *
+ * @brief commit or abort the transaction  根据事务状态决定提交或回滚事务
+ * 两阶段提交协议中最后的提交或回滚阶段的核心实现。它根据事务的状态(成功或失败)决定事务的提交或回滚。并协调本地和远程节点完成相应的操作。 
  * @param s: transcation status
  */
 void Worker::FarmCommitOrAbort(TxnContext* tx, TxnCommitStatus* ts) {
 
-  uint16_t wid = GetWorkerId();
-  std::vector<uint16_t> wids;
+  uint16_t wid = GetWorkerId();//获取当前工作节点ID
+  std::vector<uint16_t> wids; //定义一个存放工作节点ID的容器
 
-  WorkRequest* wr = tx->wr_;
+  WorkRequest* wr = tx->wr_; //获取事务上下文的工作请求，包含事务的操作类型和事务ID
 
-  // success indicates whether to commit or abort
-  epicAssert((ts->success && wr->op == COMMIT) || (!ts->success && wr->op == ABORT));
+  // success indicates whether to commit or abort 确保事务的状态和操作类型一致
+  epicAssert((ts->success && wr->op == COMMIT) || (!ts->success && wr->op == ABORT)); //如果事务状态为成功，操作类型为COMMIT；如果事务状态为失败，操作类型为ABORT
 
   int level = (wr->op == COMMIT) ? LOG_DEBUG: LOG_INFO;
   //epicLog(level, "Txn %d %s", wr->id, workToStr(wr->op));
 
-  tx->getWidForWobj(wids);
-  ts->remaining_workers_ = wids.size();
+  tx->getWidForWobj(wids); //获取事务写集合涉及的所有工作节点ID，并存储在wids容器中
+  ts->remaining_workers_ = wids.size();//设置剩余工作节点数为wids.size()，表示事务涉及的节点总数
 
-  if (tx->getNumWobjForWid(wid) > 0) {
-    std::unordered_map<GAddr, std::shared_ptr<Object>>& wset = 
-      tx->getWriteSet(GetWorkerId());
+  if (tx->getNumWobjForWid(wid) > 0) { //如果当前节点的写集合不为空，处理本地写集合
+    std::unordered_map<GAddr, std::shared_ptr<Object>>& wset = tx->getWriteSet(GetWorkerId()); //获取当前节点的写集合
 
-    if (wr->op == COMMIT) {
-      FarmWrite(wset);
-    } else {
-      GAddr a = wset.begin()->first;
-      if (FarmAddressRLocked(a) && tx->containWritable(a)) {
-        epicAssert(!FarmAddressWLocked(a));
-        FarmUnRLock(a);
-        wset.erase(a);
-        for (auto& p: wset) {
-          epicAssert(!FarmAddressWLocked(p.first) && FarmAddressRLocked(p.first));
-          FarmUnRLock(p.first);
+    if (wr->op == COMMIT) { //如果操作类型为COMMIT，调用FarmWrite(wset)函数，将写集合中的对象写入到本地内存中
+      FarmWrite(wset); //为写集合中的每个对象加写锁，更新对象内容，释放写锁或释放内存
+    } else { //如果操作类型为ABORT，释放写集合中的对象 
+      GAddr a = wset.begin()->first; //获取写集合中的第一个对象的地址
+      if (FarmAddressRLocked(a) && tx->containWritable(a)) {//检查对象是否已经加读锁，且属于当前事务的写集合
+        epicAssert(!FarmAddressWLocked(a)); //如果满足上一步的条件，确保对象未被加写锁
+        FarmUnRLock(a);//释放读锁，
+        wset.erase(a); //从写集合中删除对象 
+        for (auto& p: wset) { //遍历写集合中其他对象，
+          epicAssert(!FarmAddressWLocked(p.first) && FarmAddressRLocked(p.first));//确保对象未被加写锁，且已加读锁
+          FarmUnRLock(p.first);//释放读锁
         }
       }
     }
 
-    --ts->remaining_workers_;
+    --ts->remaining_workers_;//减少剩余工作节点数
   }
 
-  if (ts->remaining_workers_ == 0) {
+  if (ts->remaining_workers_ == 0) { //如果剩余节点数为0，说明事务已经完成
     // txn completed
-    FarmFinalizeTxn(tx, ts);
+    FarmFinalizeTxn(tx, ts); //调用FarmFinalizeTxn(tx, ts)函数，完成事务
     return;
   }
 
-  // remote commit 
-  for (auto& p: wids) {
+  // remote commit 处理远程节点
+  for (auto& p: wids) { //如果事务涉及远程节点，遍历所有工作节点ID
     if (p == wid) continue;
-    Client* c = FindClientWid(p);
-    if(likely(c))
+    Client* c = FindClientWid(p); //查找远程节点的客户端对象
+    if(likely(c)) //如果找到客户端对象，调用FarmCommitOrAbort(c, tx)函数，向远程节点发送提交或回滚请求
       FarmCommitOrAbort(c, tx);
   }
 }
@@ -1429,26 +1430,26 @@ void Worker::FarmProcessCommit(Client* c, TxnContext* tx) {
 void Worker::FarmWrite(std::unordered_map<GAddr, std::shared_ptr<Object>>& wset) {
   // first wlock
   bool ret;
-  for (auto& p: wset) {
-    epicAssert(FarmAddressRLocked(p.first));
-    ret = FarmWLock(p.first);
+  for (auto& p: wset) { //遍历写集合中的每个对象
+    epicAssert(FarmAddressRLocked(p.first)); //确保对象已经加读锁
+    ret = FarmWLock(p.first); //为对象加写锁
     epicAssert(ret);
   }
 
   // memory barrier to ensure objects are locked while being updated.
-  __sync_synchronize();
+  __sync_synchronize(); //内存屏障，确保对象在更新时被锁定
 
-  for (auto& p: wset) {
+  for (auto& p: wset) { //遍历写集合中的每个对象
     Object *o = p.second.get();
     char* local = (char*)ToLocal(o->getAddr()) + sizeof(version_t);
     local += appendInteger(local, o->getSize());
-    if (o->getSize() >= 0) {
-      o->writeTo(local, 0, o->getSize());
-      FarmUnWLock(o->getAddr());
+    if (o->getSize() >= 0) {//如果对象的大小大于等于0
+      o->writeTo(local, 0, o->getSize()); //将对象的内容写入到本地内存中
+      FarmUnWLock(o->getAddr());//并释放写锁
       epicLog(LOG_DEBUG, "Serialize %lx: %s", o->getAddr(), o->toString());
-    } else {
-      FarmUnWLock(o->getAddr());
-      FarmFree(o->getAddr());
+    } else { //如果对象的大小小于0
+      FarmUnWLock(o->getAddr()); //释放写锁
+      FarmFree(o->getAddr()); //释放对象的内存
       epicLog(LOG_DEBUG, "Free Address %lx", o->getAddr());
     }
   }
