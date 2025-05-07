@@ -4,6 +4,8 @@
 no_node=2
 node1="172.16.33.32"
 node2="172.16.33.35"
+port_master=12345
+port_worker=12346 
 obj_size=1024
 no_thread=4
 
@@ -21,7 +23,7 @@ for (( i = 0; i < no_node; i++ )); do
     log="/sharenvme/usershome/wangbo/projects/farm/log/farm-$worker.log"
 
     # 构建命令
-    cmd="$exec --ip_master $node1 --ip_worker $worker --node_id $node_id --is_master $is_master --no_node $no_node --no_thread $no_thread --obj_size $obj_size"
+    cmd="$exec --ip_master $node1 --port_master $port_master --ip_worker $worker --port_worker $port_worker --node_id $node_id --is_master $is_master --no_node $no_node --no_thread $no_thread --obj_size $obj_size"
 
     # 在远程节点上启动程序
     ssh $worker "$cmd 1>$log 2>$log &"

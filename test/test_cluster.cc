@@ -30,6 +30,10 @@ void parse_conf(int argc, char* argv[]) {
             ip_master = string(argv[++i]);
         } else if (strcmp(argv[i], "--ip_worker") == 0) {
             ip_worker = string(argv[++i]);
+        } else if (strcmp(argv[i], "--port_master") == 0) {
+            port_master = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--port_worker") == 0) {
+            port_worker = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--is_master") == 0) {
             is_master = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--obj_size") == 0) {
