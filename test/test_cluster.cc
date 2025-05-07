@@ -8,7 +8,7 @@
 
 using namespace std;
 
-#define DEBUG_LEVEL LOG_INFO
+#define DEBUG_LEVEL LOG_DEBUG
 
 // 全局变量
 int is_master = 0;
