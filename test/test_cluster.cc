@@ -61,11 +61,13 @@ void parse_conf(int argc, char* argv[]) {
     conf.worker_port = port_worker;
     conf.size = 1024 * 1024 * 1024; // 1GB
 
-    // 分配 GAlloc 对象数组
-    alloc = new GAlloc*[no_thread];
-    for (int i = 0; i < no_thread; ++i) {
-        alloc[i] = GAllocFactory::CreateAllocator(&conf);
-    }
+    // 系统初始化
+    InitSystem(&conf);
+    // // 分配 GAlloc 对象数组
+    // alloc = new GAlloc*[no_thread];
+    // for (int i = 0; i < no_thread; ++i) {
+    //     alloc[i] = GAllocFactory::CreateAllocator(&conf);
+    // }
 
     cout << "System initialized successfully!" << endl;
 }
