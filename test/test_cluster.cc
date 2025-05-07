@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "gallocator.h"
+#include "dsmapi.h"
 #include "util.h"
 
 using namespace std;
