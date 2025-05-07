@@ -25,8 +25,6 @@ RdmaResource::RdmaResource (ibv_device *dev, bool master) :
 
   int rx_depth;
 
-  epicLog(LOG_DEBUG, "new rdma resource\n");
-
   if (!(context = ibv_open_device(dev))) { //打开RDMA设备上下文
     epicLog(LOG_FATAL, "unable to get context for %s\n",
         ibv_get_device_name (dev));
@@ -78,6 +76,8 @@ RdmaResource::RdmaResource (ibv_device *dev, bool master) :
     return;
   }
 
+  epicLog(LOG_DEBUG, "new rdma resource\n");
+  
   return;
 
 clean_srq: //清理和异常处理：如果在初始化过程中发生错误，执行相应的清理操作并抛出异常
