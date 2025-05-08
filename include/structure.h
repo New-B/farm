@@ -52,9 +52,9 @@ struct Conf {
 	bool is_master = true; //mark whether current process is the master (obtained from conf and the current ip)	//标记当前进程是否为主节点
 	int master_port = 12345;	//主节点端口
 	std::string master_ip = "localhost";	//主节点IP地址
-	std::string master_bindaddr;	//主节点绑定地址
+	//std::string master_bindaddr;	//主节点绑定地址
 	int worker_port = 12346;	//工作节点端口
-	std::string worker_bindaddr;	//工作节点绑定地址
+	//std::string worker_bindaddr;	//工作节点绑定地址
 	std::string worker_ip = "localhost";	//工作节点IP地址
 	Size size = 1024*1024L*512; //per-server size of memory pre-allocated	//每个服务器预分配的内存大小
 	Size ghost_th = 1024*1024;	//幽灵阈值

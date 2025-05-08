@@ -44,8 +44,7 @@ Master::Master(const Conf& conf): st(nullptr), workers(), unsynced_workers() {  
   //return _anetTcpServer(err, port, bindaddr, AF_INET, backlog);
   if (sockfd < 0) {//检查是否成功创建服务器
     //如果创建服务器失败，则记录错误日志并退出程序
-    epicLog(LOG_WARNING, "Opening port %s:%d (%s)", 
-        conf.master_bindaddr.c_str(), conf.master_port, neterr);
+    epicLog(LOG_WARNING, "Opening port %s:%d (%s)", bind_addr, conf.master_port, neterr);
     exit(1);
   }
 
