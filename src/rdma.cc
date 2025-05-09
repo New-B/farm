@@ -77,7 +77,7 @@ RdmaResource::RdmaResource (ibv_device *dev, bool master) :
   }
 
   epicLog(LOG_DEBUG, "new rdma resource\n");
-  
+
   return;
 
 clean_srq: //清理和异常处理：如果在初始化过程中发生错误，执行相应的清理操作并抛出异常
@@ -224,12 +224,20 @@ int RdmaResource::PostRecv(int n) {
 }
 
 const char *RdmaResourceFactory::defaultDevname = NULL;
+const char *RdmaResourceFactory::workerDevname = NULL;
+/*定义了一个静态成员变量，作为RdmaResourceFactory的全局资源管理容器。
+resources是RdmaResourceFactory类的一个静态成员变量，用于存储所有已创建的RdmaResource对象的指针。
+它是一个全局共享的容器，所有RdmaResourceFactory的实例都可以访问和管理这些RDMA资源。*/
 std::vector<RdmaResource *> RdmaResourceFactory::resources;
 /*RdmaResourceFactory类的一个静态成员函数，用于获取或创建一个RDMA资源对象*/
 RdmaResource* RdmaResourceFactory::GetRdmaResource (
     bool isMaster, const char *devName) {
   if (!devName) {  //如果设备名称devName为空，则使用默认设备名称defaultDevname
-    devName = defaultDevname;
+    if (isMaster) {
+        devName = defaultDevname; // 主节点使用默认设备名称
+    } else {
+        devName = workerDevname; // 工作节点使用单独的设备名称
+    }
   }
   //查找已有的RDMA资源
   if (devName) {//如果设备名称不为空，遍历resources向量，查找是否已有匹配的RDMA资源对象
@@ -266,7 +274,12 @@ RdmaResource* RdmaResourceFactory::GetRdmaResource (
         continue; // 如果端口不是活动状态，跳过该设备
       }
 
-      devName = defaultDevname = ibv_get_device_name (list[i]);
+      // devName = defaultDevname = ibv_get_device_name (list[i]);
+      if (isMaster) {
+          devName = defaultDevname = ibv_get_device_name(list[i]); // 主节点设置默认设备名称
+      } else {
+          devName = workerDevname = ibv_get_device_name(list[i]); // 工作节点设置单独的设备名称
+      }
 
       try { // 如果找到匹配的设备且设备可用，尝试创建新的 RdmaResource 对象
         RdmaResource *ret = new RdmaResource(list[i], isMaster);

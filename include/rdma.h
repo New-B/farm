@@ -204,6 +204,7 @@ class RdmaResourceFactory {
     private:
         static std::vector<RdmaResource *> resources;   /*静态向量，保存所有RdmaResource资源的向量*/
         static const char *defaultDevname;  /*默认设备名称*/
+        static const char *workerDevname;  /*默认工作节点名称*/
         static RdmaResource* GetRdmaResource(bool isServer, const char *devName);   //获取RdmaResource资源对象
     public:
         inline static RdmaResource* getMasterRdmaResource(const char *devName = NULL) {   //获取主节点RdmaResource资源对象
