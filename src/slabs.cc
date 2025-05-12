@@ -66,13 +66,14 @@ void* SlabAllocator::mmap_malloc(size_t size) { //size:需要分配的内存大�
   static void *fixed_base = NULL;  //(void *) (0x7fc435400000); 静态变量，表示固定的内存基地址(默认为NULL)。如果需要分配固定地址的内存，可以设置fixed_base。当前代码中设置为NULL，则未使用固定地址。
   epicLog(LOG_INFO, "mmap_malloc size  = %ld", size); //打印分配请求的大小
   void* ret;
-  if (size % BLOCK_SIZE) {//如果size不是块大小BLOCK_SIZE的整数倍，则将其对齐到最近的BLOCK_SIZE倍数
-    size_t old_size = size;
-    size = ALIGN(size, BLOCK_SIZE);//将size对齐到BLOCK_SIZE的倍数。假设BLOCK_SIZE为4096(4K)，则ALIGN(size, BLOCK_SIZE)会将size向上对齐到最接近的4K的倍数。5000-8192;4096-4096
-    epicLog(LOG_WARNING, "aligned the size from %lu to %lu", old_size, size);
+  size_t aligned_size = size + BLOCK_SIZE; //预留额外的对齐空间，以防地址对齐后剩余空间不足所要求的预分配空间大小
+  if (aligned_size % BLOCK_SIZE) {//如果size不是块大小BLOCK_SIZE的整数倍，则将其对齐到最近的BLOCK_SIZE倍数
+    size_t old_size = aligned_size;
+    aligned_size = ALIGN(aligned_size, BLOCK_SIZE);//将size对齐到BLOCK_SIZE的倍数。假设BLOCK_SIZE为4096(4K)，则ALIGN(size, BLOCK_SIZE)会将size向上对齐到最接近的4K的倍数。5000-8192;4096-4096
+    epicLog(LOG_WARNING, "aligned the size from %lu to %lu", old_size, aligned_size);
   }
 #ifdef USE_HUGEPAGE  //调用mmap系统调用分配内存  
-  ret = mmap(fixed_base, size, PROT_READ | PROT_WRITE,
+  ret = mmap(fixed_base, aligned_size, PROT_READ | PROT_WRITE,
              MAP_PRIVATE | MAP_ANON | MAP_HUGETLB, -1, 0);
 #else
 /* 参数说明：
@@ -85,7 +86,7 @@ void* SlabAllocator::mmap_malloc(size_t size) { //size:需要分配的内存大�
  * 返回值：成功时返回映射的内存地址，失败时返回MAP_FAILED。
  * 该函数用于分配一块内存，返回值为分配的内存地址。返回的内存地址是对齐到指定块大小的。 
  */
-  ret = mmap(fixed_base, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+  ret = mmap(fixed_base, aligned_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 #endif
   if (ret == MAP_FAILED) {  //#define MAP_FAILED      ((void *)-1)
     perror("map failed");
@@ -253,27 +254,36 @@ void* SlabAllocator::memory_allocate(size_t size) {
   }
   return ret;
 }
-
+/*SlabAllocator类中的一个辅助函数，用于扩展指定Slab类的页面列表slab_list。主要功能包括：
+1.检查当前Slab类的页面列表容量是否足够。
+2.如果容量不足，则动态扩展页面列表的大小。
+3.确保Slab类能够存储更多的内存页面地址。
+参数：id——指定的Slab类ID，表示需要扩展页面列表的Slab类。
+返回值：1——成功；0——失败。*/
 int SlabAllocator::grow_slab_list(const unsigned int id) {
-  slabclass_t *p = &slabclass[id];
-  if (p->slabs == p->list_size) {
-    size_t new_size = (p->list_size != 0) ? p->list_size * 2 : 16;
-    void *new_list = realloc(p->slab_list, new_size * sizeof(void *));
-    if (new_list == 0)
+  slabclass_t *p = &slabclass[id]; //获取指定的Slab类描述符，以便检查和扩展其页面列表 
+  //检查页面列表容量是否足够
+  if (p->slabs == p->list_size) { //检查当前Slab类的页面计数p->slabs，是否已经达到页面列表的容量p->list_size。如果页面计数等于列表容量，说明页面列表已满，需要扩展
+    //计算新的页面列表的大小
+    size_t new_size = (p->list_size != 0) ? p->list_size * 2 : 16; //如果当前页面列表的容量不为0，将其容量翻倍。否则，初始化容量为16
+    void *new_list = realloc(p->slab_list, new_size * sizeof(void *)); //使用realloc动态扩展页面列表的大小。新的列表大小为new_size * sizeof(void *)，即新的页面列表的容量乘以每个页面地址的大小 
+    if (new_list == 0) //检查扩展是否成功，如果realloc返回0，表示扩展失败，直接返回0
       return 0;
-    p->list_size = new_size;
-    p->slab_list = (void **) new_list;
+    p->list_size = new_size; //更新页面列表容量为new_size
+    p->slab_list = (void **) new_list; //更新页面列表的指针为new_list
   }
-  return 1;
+  return 1; //返回
 }
-
-void SlabAllocator::split_slab_page_into_freelist(char *ptr,
-                                                  const unsigned int id) {
-  slabclass_t *p = &slabclass[id];
+/*split_slab_page_into_freelist函数是SlabAllocator类中的一个辅助函数，用于将分配的Slab页面拆分为多个内存块，并将这些块加入空闲列表。
+参数：ptr——指向分配的Slab页面起始地址。id——指定的Slab类ID，表示将内存块加入哪个Slab类的空闲列表*/
+void SlabAllocator::split_slab_page_into_freelist(char *ptr, const unsigned int id) {
+  slabclass_t *p = &slabclass[id]; //获取指定Slab类描述符，以便操作该Slab类的空闲列表 
   int x;
-  for (x = 0; x < p->perslab; x++) {
-    do_slabs_free(ptr, 0, id);
-    ptr += p->size;
+  /*遍历页面中的每个内存块，并将其加入空闲列表。
+  p->perslab表示当前Slab类中每个页面包含的内存块数量。p->size表示当前Slab类中每个内存块的大小。*/
+  for (x = 0; x < p->perslab; x++) { 
+    do_slabs_free(ptr, 0, id);//调用do_slabs_free函数将当前内存块(ptr)加入空闲列表
+    ptr += p->size; //将指针ptr向后移动一个内存块的大小，以便处理下一个内存块
   }
 }
 /*do_slabs_newslab用于为指定的Slab类分配新的Slab页面。主要功能包括：
@@ -369,40 +379,45 @@ void * SlabAllocator::do_slabs_alloc(const size_t size, unsigned int id) {
 
   return ret;
 }
-
+/*SlabAllocator类中的一个核心函数，用于释放指定的内存块，并将其重新加入到指定Slab类的空闲列表中。它的主要功能包括：
+1.检查内存块的合法性。
+2.将内存块标记为已释放。
+3.将内存块加入指定Slab类的空闲列表。
+4.更新内存释放的统计信息。
+参数：ptr——指向要释放的内存块的指针。size——要释放的内存块的大小(以字节为单位)。id——指定的Slab类ID，表示将内存块加入哪个Slab类的空闲列表。*/
 void SlabAllocator::do_slabs_free(void *ptr, const size_t size,
                                   unsigned int id) {
   slabclass_t *p;
   item *it;
 
   //assert(((item *)ptr)->slabs_clsid == 0); //sep
-  assert(id >= POWER_SMALLEST && id <= power_largest);
-  if (id < POWER_SMALLEST || id > power_largest)
-    return;
+  assert(id >= POWER_SMALLEST && id <= power_largest);//检查Slab类ID的合法性
+  if (id < POWER_SMALLEST || id > power_largest) //确保指定的slab类ID在有效范围内
+    return; //如果ID不合法，直接返回，不执行后续操作
 
-  MEMCACHED_SLABS_FREE(size, id, ptr);
-  p = &slabclass[id];
+  MEMCACHED_SLABS_FREE(size, id, ptr); //调用MEMCACHED_SLABS_FREE宏函数记录内存释放事件 
+  p = &slabclass[id]; //获取指定Slab类描述符，以便操作该Slab类的空闲列表
 
   //it = (item *)ptr; //sep
-  if (stats_map.count(ptr)) {
-    it = stats_map.at(ptr);  //sep
+  if (stats_map.count(ptr)) { //检查stats_map中是否已存在内存块的元数据
+    it = stats_map.at(ptr);  //如果存在，，直接获取元数据
   } else {
-    it = new item();
+    it = new item(); //如果不存在，创建新的item对象，并将其与内存块地址关联
     stats_map[ptr] = it;
   }
   it->data = ptr;  //sep
 
-  it->it_flags |= ITEM_SLABBED;
+  it->it_flags |= ITEM_SLABBED;//标记内存块的标志位，表示该内存块已释放并可重用
   it->prev = 0;
-  it->next = (struct _stritem *) p->slots;
+  it->next = (struct _stritem *) p->slots; //将内存块插入到当前Slab类的空闲列表
   if (it->next)
-    it->next->prev = it;
-  p->slots = it;
+    it->next->prev = it; 
+  p->slots = it; //更新空闲列表的头指针为当前内存块
 
-  p->sl_curr++;
-  p->requested -= size;
-  if (size)
-    mem_free += p->size;
+  p->sl_curr++; //增加当前Slab类的空闲块计数 
+  p->requested -= size; //减少当前Slab类的已分配内存统计信息 
+  if (size) //如果size不为零
+    mem_free += p->size; //增加全局的空闲内存统计信息 
   return;
 }
 
