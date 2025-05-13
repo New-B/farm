@@ -443,33 +443,33 @@ send_buf_err:
 
 int RdmaContext::SetRemoteConnParam(const char *conn) {
   int ret;
-  uint32_t rlid, rpsn, rqpn, rrkey;
-  uint64_t rvaddr;
-
-  if (IsMaster()) {
+  uint32_t rlid, rpsn, rqpn, rrkey; //远程LID(Local Identifier)、远程队列对编号、远程包序列号、远程内存区域的密钥
+  uint64_t rvaddr; //远程内存区域的虚拟地址 
+  //解析远程RDMA连接参数conn
+  if (IsMaster()) {   //
     /* conn should be of the format "lid:qpn:psn" */
-    sscanf (conn, "%x:%x:%x", &rlid, &rqpn, &rpsn);
+    sscanf (conn, "%x:%x:%x", &rlid, &rqpn, &rpsn); 
   } else {
     /* conn should be of the format "lid:qpn:psn:rkey:vaddr" */
     sscanf (conn, "%x:%x:%x:%x:%lx", &rlid, &rqpn, &rpsn, &rrkey, &rvaddr);
     this->rkey = rrkey;
     this->vaddr = rvaddr;
   }
-
+  //根据解析的参数，修改本地队列对QP的状态，使其进入RTR和RTS状态 
   /* modify qp to RTR state */
   {
-    ibv_qp_attr attr = {}; //zero init the POD value (DON'T FORGET!!!!)
-    attr.qp_state = IBV_QPS_RTR;
-    attr.path_mtu = IBV_MTU_2048;
-    attr.dest_qp_num = rqpn;
-    attr.rq_psn = rpsn;
-    attr.max_dest_rd_atomic = 1;
-    attr.min_rnr_timer = 12;
-    attr.ah_attr.is_global = 0;
-    attr.ah_attr.dlid = rlid;
-    attr.ah_attr.src_path_bits = 0;
+    ibv_qp_attr attr = {}; //zero init the POD value (DON'T FORGET!!!!) 初始化QP属性结构体
+    attr.qp_state = IBV_QPS_RTR; // 设置 QP 状态为 RTR
+    attr.path_mtu = IBV_MTU_2048; // 设置路径的最大传输单元（MTU）
+    attr.dest_qp_num = rqpn; // 设置目标队列对编号
+    attr.rq_psn = rpsn; // 设置目标包序列号
+    attr.max_dest_rd_atomic = 1; // 设置最大目标原子操作数
+    attr.min_rnr_timer = 12; // 设置最小 RNR 超时时间
+    attr.ah_attr.is_global = 0; // 设置地址句柄为本地
+    attr.ah_attr.dlid = rlid; // 设置目标 LID
+    attr.ah_attr.src_path_bits = 0; // 设置源路径位
     //attr.ah_attr.sl = 1;
-    attr.ah_attr.port_num = resource->ibport;
+    attr.ah_attr.port_num = resource->ibport; // 设置端口号
 
     ret = ibv_modify_qp(this->qp, &attr,
         IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN
@@ -485,12 +485,12 @@ int RdmaContext::SetRemoteConnParam(const char *conn) {
   {
     ibv_qp_attr attr = {};
     /* modify qp to rts state */
-    attr.qp_state = IBV_QPS_RTS;
-    attr.timeout = 14;
-    attr.retry_cnt = 7;
-    attr.rnr_retry = 7;
-    attr.sq_psn = this->resource->psn;
-    attr.max_rd_atomic = 1;
+    attr.qp_state = IBV_QPS_RTS; // 设置 QP 状态为 RTS
+    attr.timeout = 14; // 设置超时时间
+    attr.retry_cnt = 7; // 设置重试次数
+    attr.rnr_retry = 7; // 设置 RNR 重试次数
+    attr.sq_psn = this->resource->psn; // 设置发送包序列号
+    attr.max_rd_atomic = 1; // 设置最大原子操作数
     ret = ibv_modify_qp(this->qp, &attr,
         IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT
         | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN
@@ -502,8 +502,8 @@ int RdmaContext::SetRemoteConnParam(const char *conn) {
     }
   }
 
-  resource->PostRecv(max_pending_msg);
-  return 0;
+  resource->PostRecv(max_pending_msg); //为接收操作预先发布接收请求，max_pending_msg表示最大刮起消息数
+  return 0; //如果所有操作成功，返回0，表示设置远程连接参数成功。
 }
 
 const char* RdmaContext::GetRdmaConnString() {

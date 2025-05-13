@@ -71,7 +71,7 @@ Worker::Worker(const Conf& conf, RdmaResource* res):
   sockfd = anetTcpServer(neterr, conf.worker_port, bind_addr, conf.backlog);
   if (sockfd < 0) {
     epicLog(LOG_WARNING, "Opening port %d (bind_addr %s): %s", conf.worker_port, bind_addr, neterr);
-    exit(1);
+    exit(1); 
   }
 
   //register tcp event for rdma parameter exchange
@@ -262,7 +262,7 @@ int Worker::LocalRequestChecker(struct aeEventLoop *eventLoop, long long id, voi
   return w->conf->timeout;
 }
 
-void Worker::SyncMaster(Work op, WorkRequest* parent) {
+void Worker::SyncMaster(Work op, WorkRequest* parent) { //默认情况下op的传入参数为UPDATE_MEM_STATS
   WorkRequest* wr = new WorkRequest();
   wr->parent = parent;
   int ret;

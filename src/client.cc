@@ -57,15 +57,15 @@ int Client::SetRemoteConnParam(const char *conn) {
   if(resource->IsMaster()) { //in the Master thread, connected to worker
     wid = resource->GetCounter();
   } else if(IsForMaster()) { //in the worker thread, but connected to Master
-    sscanf(conn, "%x:", &wid);
+    sscanf(conn, "%x:", &wid); //使用sscanf从连接字符串conn中解析出工作节点ID，并将其存储到我i的中。
   } else if(!resource->IsMaster()) { //in the worker thread, and connected to worker
     sscanf(conn, "%x:", &wid);
   } else {
     epicLog(LOG_WARNING, "undefined cases");
   }
-  p = strchr(conn, ':');
-  p++;
-  return ctx->SetRemoteConnParam(p);
+  p = strchr(conn, ':'); //查找连接字符串中第一个':'字符的位置，返回值是一个指向冒号的指针，并将其赋值给p
+  p++; //跳过worker ID部分,定为到RDMA连接字符串的起始位置。
+  return ctx->SetRemoteConnParam(p);//ctx是当前客户端的RDMA上下文对象，将解析出RDMA连接字符串p传递给RDMA上下文对象的SetRemoteConnParam方法
 }
 
 const char* Client::GetConnString(int workerid) {

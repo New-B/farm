@@ -56,7 +56,7 @@ class Worker: public Server { //Worker类继承自Server类，表示工作节点
    * in order to wake up individual thread
    */
   boost::lockfree::queue<WorkRequest*>* wqueue; //work queue used to communicate with local threads 工作队列，用于与本地线程通信
-  Client* master; //指向主节点的客户端
+  Client* master; //一个指向Client对象的指针，是Worker对象的一个成员函数，用于表示当前工作节点与主节点之间的连接，负责与主节点进行通信
   unordered_map<int, int> pipes; //worker pipe fd to app thread pipe fd 工作节点管道文件描述符到应用线程管道文件描述符的映射
   unsigned int wr_psn; //we assume the pending works will not exceed INT_MAX 假设待处理的工作不会超过INT_MAX
 
