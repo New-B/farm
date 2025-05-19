@@ -107,19 +107,29 @@ RdmaResource::~RdmaResource () {
   }
 }
 
-
+/*
+ * 1.将制定的内存区域注册为RDMA的本地内存区域(Memory Region, MR)
+ * 2.注册的内存区域可以被RDMA操作访问，包括本地写入、远程写入和远程读取
+ * 3.注册的内存区域的大小和基地址由参数sz和base指定 
+ * 4.返回值为0表示注册成功，-1表示注册失败
+ */
 int RdmaResource::RegLocalMemory(void *base, size_t sz) {
   int ret = -1;
-  if (this->base || this->bmr || isForMaster) {
+  /* 
+   * this->base检查是否已经有内存区域被注册，如果base不为空，说明已经注册过内存区域
+   * this->bmr检查是否已经有内存区域被注册，如果bmr不为空，说明已经注册过内存区域 
+   * isForMaster检查是否是主节点，如果是主节点，则不允许注册内存区域
+   */
+  if (this->base || this->bmr || isForMaster) { 
     epicLog(LOG_WARNING, "An mr has already be registered or I am a master\n");
     return ret;
   }
-
-  bmr = ibv_reg_mr (this->pd, const_cast<void *>(base), sz,
-      IBV_ACCESS_LOCAL_WRITE
-      | IBV_ACCESS_REMOTE_WRITE
-      | IBV_ACCESS_REMOTE_READ);
-  if (!bmr) {
+  //调用ibv_reg_mr函数将制定的内存区域注册为RDMA的本地内存区域
+  bmr = ibv_reg_mr (this->pd, const_cast<void *>(base), sz, //保护域pd：用于管理RDMA资源；base：要注册的内存区域的起始地址；sz：要注册的内存区域的大小
+      IBV_ACCESS_LOCAL_WRITE //允许本地写入
+      | IBV_ACCESS_REMOTE_WRITE //允许远程写入
+      | IBV_ACCESS_REMOTE_READ); //允许远程读取
+  if (!bmr) { //如果注册成功，ibv_reg_mr返回一个指向ibv_mr的指针；如果注册失败，返回nullptr 
     epicLog(LOG_FATAL, "Unable to register mr for hash table");
     return ret;
   }
@@ -127,7 +137,11 @@ int RdmaResource::RegLocalMemory(void *base, size_t sz) {
   this->base = base;
   return 0;
 }
-
+/*
+ * 1.为RDMA通信分配和注册通信槽(communication slots)
+ * 2.如果现有的槽数量不足，则动态分配更多的槽，并将其注册为RDMA的本地内存区域(Memory Region, MR)
+ * 3.返回值为0表示注册成功，-1表示注册失败
+ */
 int RdmaResource::RegCommSlot(int slot) {
   epicLog(LOG_DEBUG, "trying to register %d slots", slot);
 
@@ -137,12 +151,12 @@ int RdmaResource::RegCommSlot(int slot) {
     slot_inuse += slot;
     return 0;
   } else {
-    slot_inuse += slot;
+    slot_inuse += slot; //如果需要分配更多槽，首先需要更新slot_inuse的值，增加需要注册的槽数量
     int i = slots.size ();
-    for (; i < slot_inuse; i += RECV_SLOT_STEP) {
-      int sz = roundup(RECV_SLOT_STEP*MAX_REQUEST_SIZE, page_size);
-      void* buf = zmalloc(sz);
-      struct ibv_mr *mr = ibv_reg_mr (this->pd, buf, sz,
+    for (; i < slot_inuse; i += RECV_SLOT_STEP) { //从当前槽总数slots.size()开始，每次分配RECV_SLOT_STEP个槽，直到满足slot_inuse的要求 
+      int sz = roundup(RECV_SLOT_STEP*MAX_REQUEST_SIZE, page_size); //计算需要分配的内存大小，确保对齐到页面大小
+      void* buf = zmalloc(sz); //调用zmalloc函数分配内存，用于存储通信槽
+      struct ibv_mr *mr = ibv_reg_mr (this->pd, buf, sz, //调用ibv_reg_mr将分配的内存注册为RDMA的本地内存区域
           IBV_ACCESS_LOCAL_WRITE
           | IBV_ACCESS_REMOTE_WRITE
           | IBV_ACCESS_REMOTE_READ);
@@ -150,11 +164,11 @@ int RdmaResource::RegCommSlot(int slot) {
         epicLog(LOG_FATAL, "Unable to register mr for communication slots");
         return -1;
       }
-      comm_buf.push_back(mr);
+      comm_buf.push_back(mr); //将注册的ibv_mr对象存储到comm_buf向量中
       epicAssert(mr->addr == buf && mr->length == sz);
     }
-    slots.reserve (i);
-    for (int j = slots.size(); j < i; j++) {
+    slots.reserve (i); //调用reserve()函数预留足够的空间以存储新的槽状态
+    for (int j = slots.size(); j < i; j++) {  //将新分配的槽状态初始化为false，表示这些槽尚未被使用
       slots.push_back(false);
     }
 
