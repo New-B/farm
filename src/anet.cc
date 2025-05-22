@@ -487,10 +487,10 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af,
       addr = &(ipv4->sin_addr);
     } 
     inet_ntop(p->ai_family, addr, ipstr, sizeof(ipstr));
-    if (strcmp(ipstr, "0.0.0.0") == 0) {
-      epicLog(LOG_FATAL, "Error: Listening on invalid address %s:%d", ipstr, port);
-      goto error;
-    }
+    // if (strcmp(ipstr, "0.0.0.0") == 0) {
+    //   epicLog(LOG_FATAL, "Error: Listening on invalid address %s:%d", ipstr, port);
+    //   goto error;
+    // }
     epicLog(LOG_INFO, "Listening on %s:%d", ipstr, port);
 
     goto end; //如果绑定和监听成功，则跳转到end标签
