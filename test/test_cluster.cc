@@ -64,6 +64,7 @@ void parse_conf(int argc, char* argv[]) {
 
     // 系统初始化
     InitSystem(&conf);
+    sleep(2);
     // // 分配 GAlloc 对象数组
     // alloc = new GAlloc*[no_thread];
     // for (int i = 0; i < no_thread; ++i) {
