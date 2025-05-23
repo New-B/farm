@@ -4,6 +4,8 @@
 
 static const Conf* conf = nullptr;
 static std::mutex init_lock;
+GAlloc** alloc;
+static int no_thread = 0;
 
 // void InitSystem(const char* conf_file) {
 //     std::lock_guard<std::mutex> guard(init_lock);
@@ -15,6 +17,12 @@ static std::mutex init_lock;
 void InitSystem(const Conf* c){
     std::lock_guard<std::mutex> guard(init_lock);
     GAllocFactory::InitSystem(c);
+    sleep(2);
+    no_thread = c->no_thread; //获取线程数
+    alloc = new GAlloc*[no_thread];
+    for (int i = 0; i < no_thread; ++i) {
+        alloc[i] = GAllocFactory::CreateAllocator();
+    }
 }
 
 GAddr dsmMalloc(Size size) {
@@ -40,5 +48,9 @@ void dsmFree(GAddr addr) {
 void dsm_finalize() {
     std::lock_guard<std::mutex> guard(init_lock);
     GAllocFactory::FreeResouce();
+    for (int i = 0; i < no_thread; ++i) {
+        delete alloc[i];
+    }
+    delete[] alloc;
     conf = nullptr;
 }

@@ -22,7 +22,7 @@ int no_thread = 4;
 int no_node = 2;
 int node_id = 0;
 Conf conf;
-GAlloc** alloc;
+//GAlloc** alloc;
 
 void parse_conf(int argc, char* argv[]) {
     // 解析命令行参数
@@ -60,11 +60,12 @@ void parse_conf(int argc, char* argv[]) {
     conf.master_port = port_master;
     conf.worker_ip = ip_worker;
     conf.worker_port = port_worker;
+    conf.no_thread = no_thread;
     conf.size = 1024 * 1024 * 1024; // 1GB
 
     // 系统初始化
     InitSystem(&conf);
-    sleep(2);
+
     // // 分配 GAlloc 对象数组
     // alloc = new GAlloc*[no_thread];
     // for (int i = 0; i < no_thread; ++i) {
@@ -87,11 +88,7 @@ int main(int argc, char* argv[]) {
     cout << "Object Size: " << obj_size << endl;
     cout << "Number of Nodes: " << no_node << endl;
 
-    // 清理资源
-    for (int i = 0; i < no_thread; ++i) {
-        delete alloc[i];
-    }
-    delete[] alloc;
+    dsm_finalize();
 
     return 0;
 }

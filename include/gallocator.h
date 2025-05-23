@@ -52,7 +52,7 @@ public:
 
     ~GAlloc() {delete farm;}//析构函数，释放farm
 
-protected:
+protected://保护类型可以确保只有该类及其子类可以访问这些成员
 	Farm *farm; //Farm对象的指针，用于管理事务和内存操作
 };
 
@@ -103,13 +103,13 @@ public:
 		lock.unlock(); //解锁
 	}
 
-	// // 创建分配器
-	// static GAlloc* CreateAllocator() {
-	// //	lock.lock(); // 加锁
-	// 	GAlloc* ret = new GAlloc(worker);
-	// //	lock.unlock(); // 解锁
-	// 	return ret;
-	// }
+	// 创建分配器
+	static GAlloc* CreateAllocator() {
+	//	lock.lock(); // 加锁
+		GAlloc* ret = new GAlloc(worker);
+	//	lock.unlock(); // 解锁
+		return ret;
+	}
 /*
 	//  this function should be call in every thread
 	//  in order to init some per-thread data
@@ -131,34 +131,34 @@ public:
 	// =nullptr是默认参数值，表示如果调用函数时没有传递该参数，则指针c默认为空指针
 	// 当将&conf作为实际参数传递给一个接受const Conf*类型的形式参数时，实际上传递的是
 	// conf对象的地址，并且在函数内不能修改conf对象的内容
-	static GAlloc* CreateAllocator(const Conf* c = nullptr) { //创建分配器
-		lock.lock(); //加锁，确保在同一时间只有一个线程可以进入这段代码，从而保护共享资源
-		//主要用于保护对静态成员变量conf、worker和master的访问，确保线程安全
-		if(c) {  //如果传入了非空的conf,则设置配置
-			if(!conf) {	//如果配置不存在,即类的共享静态变量conf尚未被初始化
-				conf = c;//设置配置
-			} else {
-				epicLog(LOG_INFO, "NOTICE: Conf already exist %lx", conf); //记录日志
-			}
-		} else {//如果没有传入conf
-			if(!conf) {//而且类的共享静态变量conf也未被初始化
-				epicLog(LOG_FATAL, "Must provide conf for the first time"); //记录致命错误日志
-			}
-		}
+	// static GAlloc* CreateAllocator(const Conf* c = nullptr) { //创建分配器
+	// 	lock.lock(); //加锁，确保在同一时间只有一个线程可以进入这段代码，从而保护共享资源
+	// 	//主要用于保护对静态成员变量conf、worker和master的访问，确保线程安全
+	// 	if(c) {  //如果传入了非空的conf,则设置配置
+	// 		if(!conf) {	//如果配置不存在,即类的共享静态变量conf尚未被初始化
+	// 			conf = c;//设置配置
+	// 		} else {
+	// 			epicLog(LOG_INFO, "NOTICE: Conf already exist %lx", conf); //记录日志
+	// 		}
+	// 	} else {//如果没有传入conf
+	// 		if(!conf) {//而且类的共享静态变量conf也未被初始化
+	// 			epicLog(LOG_FATAL, "Must provide conf for the first time"); //记录致命错误日志
+	// 		}
+	// 	}
 
-		if(conf->is_master) { //如果需要将本机配置为主节点master //	//而且如果静态成员变量master的指针没有被初始化
-			if(!master) master = MasterFactory::CreateServer(*conf); //创建master
-			// 对于const Conf* GAllocFactory::conf = nullptr; *conf是一个解引用操作，
-			// 表示conf指针所指向的Conf对象.conf是一个指向Conf对象的指针，类型为const Conf*。
-			// *conf的类型是const Conf&，即一个对Conf对象的常量引用，是Conf对象本身。
-		}
-		if(!worker) {//master同时也需要当做worker存在
-			worker = WorkerFactory::CreateServer(*conf); //创建worker
-		}
-		GAlloc* ret = new GAlloc(worker); //创建Galloc对象
-		lock.unlock();//解锁
-		return ret;//返回GAlloc对象指针
-	}
+	// 	if(conf->is_master) { //如果需要将本机配置为主节点master //	//而且如果静态成员变量master的指针没有被初始化
+	// 		if(!master) master = MasterFactory::CreateServer(*conf); //创建master
+	// 		// 对于const Conf* GAllocFactory::conf = nullptr; *conf是一个解引用操作，
+	// 		// 表示conf指针所指向的Conf对象.conf是一个指向Conf对象的指针，类型为const Conf*。
+	// 		// *conf的类型是const Conf&，即一个对Conf对象的常量引用，是Conf对象本身。
+	// 	}
+	// 	if(!worker) {//master同时也需要当做worker存在
+	// 		worker = WorkerFactory::CreateServer(*conf); //创建worker
+	// 	}
+	// 	GAlloc* ret = new GAlloc(worker); //创建Galloc对象
+	// 	lock.unlock();//解锁
+	// 	return ret;//返回GAlloc对象指针
+	// }
 
 /*
 	//need to call for every thread
