@@ -62,6 +62,7 @@ struct Conf {
 	int unsynced_th = 1;//未同步阈值	
 	double factor = 1.25;	//增长因子
 	int maxclients = 1024;	//最大客户端数
+	int no_thread = 1;	//实际线程数
 	int maxthreads = 10;	//最大线程数
 	int backlog = TCP_BACKLOG;	//TCP监听队列长度 连接的等待队列长度
 	int loglevel = LOG_DEBUG;	//日志级别
