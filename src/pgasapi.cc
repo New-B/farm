@@ -1,6 +1,7 @@
 #include "pgasapi.h"
 #include <thread>
 #include <mutex>
+#include <unordered_map>
 
 static const Conf* conf = nullptr;
 static std::mutex init_lock;
