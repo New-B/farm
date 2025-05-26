@@ -9,6 +9,7 @@
 using namespace std;
 
 #define DEBUG_LEVEL LOG_DEBUG
+#define ALLOC_SIZE 1024 // 定义分配的内存大小
 
 // 全局变量
 int is_master = 0;
@@ -75,6 +76,19 @@ void parse_conf(int argc, char* argv[]) {
     cout << "System initialized successfully!" << endl;
 }
 
+void* thread_func(void* arg) {
+    GAddr addr = dsmMalloc(ALLOC_SIZE);
+    char data[ALLOC_SIZE] = "Hello, DSM!";
+    dsmWrite(addr, data, ALLOC_SIZE);
+
+    char buffer[ALLOC_SIZE];
+    dsmRead(addr, buffer, ALLOC_SIZE);
+    printf("Read data: %s\n", buffer);
+
+    dsmFree(addr);
+    return nullptr;
+}
+
 int main(int argc, char* argv[]) {
     // 初始化系统
     parse_conf(argc, argv);
@@ -88,7 +102,29 @@ int main(int argc, char* argv[]) {
     cout << "Object Size: " << obj_size << endl;
     cout << "Number of Nodes: " << no_node << endl;
 
+    // 创建线程数组
+    pthread_t threads[no_thread];
+
+    // 启动线程
+    for (int i = 0; i < no_thread; ++i) {
+        if (pthread_create(&threads[i], nullptr, thread_func, nullptr) != 0) {
+            cerr << "Error: Failed to create thread " << i << endl;
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // 等待所有线程完成
+    for (int i = 0; i < no_thread; ++i) {
+        if (pthread_join(threads[i], nullptr) != 0) {
+            cerr << "Error: Failed to join thread " << i << endl;
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // 释放资源
     dsm_finalize();
+
+    cout << "All threads completed successfully!" << endl;
 
     return 0;
 }
