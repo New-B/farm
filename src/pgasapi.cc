@@ -8,7 +8,7 @@ static std::mutex init_lock;
 static std::mutex map_lock; //用于保护映射表
 GAlloc** alloc;
 static int no_thread = 0;
-stctic std::unordered_map<std::thread::id, int> thread_to_alloc_map; //线程ID到分配器索引的映射表
+static std::unordered_map<std::thread::id, int> thread_to_alloc_map; //线程ID到分配器索引的映射表
 
 // void InitSystem(const char* conf_file) {
 //     std::lock_guard<std::mutex> guard(init_lock);
