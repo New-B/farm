@@ -133,6 +133,7 @@ int RdmaResource::RegLocalMemory(void *base, size_t sz) {
     epicLog(LOG_FATAL, "Unable to register mr for hash table");
     return ret;
   }
+  epicLog(LOG_INFO, "registered local memory region at %p with size %ld\n", base, sz);
 
   this->base = base;
   return 0;
