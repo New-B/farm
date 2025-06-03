@@ -21,6 +21,7 @@ class Server{
   private:
     unordered_map<uint32_t, Client*> qpCliMap; /* rdma clients */ //map from qpn to region存储RDMA客户端的映射  /*从qpn到区域的映射*/   
     unordered_map<int, Client*> widCliMap; //map from worker id to region //从worker id到区域的映射   从worker ID到客户端的映射
+    unordered_map<int, std::string> workerRdmaParams; //worker RDMA参数映射  存储worker的RDMA参数映射  //从worker ID到RDMA参数的映射
     RdmaResource* resource; //RDMA资源 指向RDMA资源的指针
     aeEventLoop* el;  //event loop 事件循环
     int sockfd; //socket fd  socket文件描述符
@@ -35,6 +36,8 @@ class Server{
     Client* NewClient(bool isMaster, const char* rdmaConn = nullptr); //创建新客户端的重载方法
     Client* NewClient(const char*);
     Client* NewClient();
+
+    std::string GetWorkerRdmaParam(int workerId); //获取工作节点的RDMA参数  根据worker ID获取RDMA参数
 
     virtual bool IsMaster() = 0;  //判断是否为主节点  //纯虚函数
     virtual int GetWorkerId() = 0;  //获取工作节点ID  //纯虚函数
