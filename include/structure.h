@@ -49,6 +49,7 @@ typedef uint64_t GAddr;	//定义GAddr为uint64_t类型
 #define Gnullptr 0	//全局空指针
 
 struct Conf {
+	int no_node = 1;	//number of nodes	//工作节点数
 	bool is_master = true; //mark whether current process is the master (obtained from conf and the current ip)	//标记当前进程是否为主节点
 	int master_port = 12345;	//主节点端口
 	std::string master_ip = "localhost";	//主节点IP地址

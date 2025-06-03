@@ -55,6 +55,7 @@ void parse_conf(int argc, char* argv[]) {
     }
 
     // 配置初始化
+    conf.no_node = no_node; 
     conf.loglevel = DEBUG_LEVEL;
     conf.is_master = is_master;
     conf.master_ip = ip_master;
