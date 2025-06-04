@@ -90,6 +90,27 @@ Master::Master(const Conf& conf): st(nullptr), workers(), unsynced_workers() {  
   this->st = new thread(startEventLoop, el);
 }
 
+// int Master::PostAcceptWorker(int fd, void* data) {
+//   char msg[MAX_WORKERS_STRLEN+1];
+//   int n = read(fd, msg, MAX_WORKERS_STRLEN);
+//   if(n <= 0) {
+//     epicLog(LOG_WARNING, "Unable to receive worker ip:port\n");
+//     return -2;
+//   }
+//   worker_ips.append(msg, n);
+//   workers++;
+//   epicLog(LOG_INFO, "worker %d connected, now worker list is %s (len=%d)\n", 
+//       workers, worker_ips.c_str(), worker_ips.length());
+  
+//   if (workers == conf->no_node) {
+//     BroadcastWorkerList();
+//   } else{
+//     worker_ips.append(",");
+//   }
+  
+//   return 0;
+// }
+
 int Master::PostAcceptWorker(int fd, void* data) {
   if(worker_ips.length() == 0) {
     if(1 != write(fd, " ", 1)) {
@@ -119,6 +140,28 @@ int Master::PostAcceptWorker(int fd, void* data) {
       msg, worker_ips.c_str(), worker_ips.length());
   return 0;
 }
+
+// void Master::BroadcastWorkerList() {
+//   std::string allWorkerData = "WorkerList:";
+//   allWorkerData.append(worker_ips); //worker_ips is a string containing all worker IPs and ports 已包含所有工作节点的IP:Port信息
+//   allWorkerData += ";RdmaParams:";
+
+//   // Append RDMA parameters for each worker 序列化所有工作节点的RDMA连接参数
+//   for (const auto& pair : workerRdmaParams) {
+//     allWorkerData += std::to_string(pair.first) + ":" + pair.second + ",";
+//   }
+//   if (!allWorkerData.empty() && allWorkerData.back() == ',') {
+//     allWorkerData.pop_back(); // 移除最后一个逗号
+//   }
+
+//   // Broadcast the worker list and RDMA parameters to all clients
+//   for (const auto& pair : qpCliMap) {
+//     Client* client = pair.second;
+//     client->Send(allWorkerData.c_str(), allWorkerData.length());
+//   }
+//   epicLog(LOG_INFO, "Broadcasted worker list and RDMA parameters to all clients: %s", allWorkerData.c_str());
+//   //WorkerList:192.168.1.1:12345,192.168.1.2:12345;RDMAParams:1:rdma_param_1,2:rdma_param_2
+// }
 
 Master::~Master() {
   aeDeleteEventLoop(el);

@@ -41,6 +41,7 @@ public:
     //some post process after accepting a TCP connection (e.g., send the worker list)
 	int PostAcceptWorker(int, void*);	//接受工作节点连接后的处理
 	//inline int PostConnectMaster(int fd, void* data) {return 0;} //not used
+	//void BroadcastWorkerList(); // 广播所有工作节点的列表和RDMA连接参数
 
 	~Master();	//析构函数，释放资源
 };

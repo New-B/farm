@@ -22,11 +22,11 @@ Client* Server::NewClient(bool isMaster, const char* rdmaConn) {
     uint32_t qp = c->GetQP();
     qpCliMap[qp] = c;
 
-    //将客户端的RDMA连接参数存储到新的成员变量中。
-    if (isMaster) {
-      int workerId = c->GetWorkerId(); // 获取工作节点的 Worker ID
-      workerRdmaParams[workerId] = std::string(rdmaConn); // 插入 RDMA 参数
-    }
+    // //将客户端的RDMA连接参数存储到新的成员变量中。
+    // if (isMaster) {
+    //   int workerId = c->GetWorkerId(); // 获取工作节点的 Worker ID
+    //   workerRdmaParams[workerId] = std::string(rdmaConn); // 插入 RDMA 参数
+    // }
     return c;
   } catch (int err){
     epicLog(LOG_WARNING, "Unable to create new client\n");
@@ -34,14 +34,14 @@ Client* Server::NewClient(bool isMaster, const char* rdmaConn) {
   }
 }
 
-std::string Server::GetWorkerRdmaParam(int workerId) {
-  try {
-    return workerRdmaParams.at(workerId);
-  } catch (const std::out_of_range& oor) {
-    epicLog(LOG_WARNING, "Cannot find RDMA param for worker %d (%s)", workerId, oor.what());
-    return "";
-  }
-}
+// std::string Server::GetWorkerRdmaParam(int workerId) {
+//   try {
+//     return workerRdmaParams.at(workerId);
+//   } catch (const std::out_of_range& oor) {
+//     epicLog(LOG_WARNING, "Cannot find RDMA param for worker %d (%s)", workerId, oor.what());
+//     return "";
+//   }
+// }
 
 void Server::ProcessRdmaRequest() {
   void *ctx;
