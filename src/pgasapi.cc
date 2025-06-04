@@ -74,7 +74,7 @@ void dsmFree(GAddr addr) {
 
 void dsm_finalize() {
     std::lock_guard<std::mutex> guard(init_lock);
-    GAllocFactory::FreeResouce();
+    //GAllocFactory::FreeResouce();
     for (int i = 0; i < no_thread; ++i) {
         delete alloc[i];
     }
