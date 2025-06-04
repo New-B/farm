@@ -4,6 +4,7 @@
 no_node=2
 node1="172.16.33.32"
 node2="172.16.33.35"
+node3="172.16.33.30"
 port_master=12345
 port_worker=12346 
 obj_size=1024
@@ -13,7 +14,7 @@ no_thread=4
 exec="/sharenvme/usershome/wangbo/projects/farm/test/test_cluster"
 
 # 节点列表
-nodes=($node1 $node2)
+nodes=($node1 $node2 $node3)
 
 # 遍历每个节点并启动程序
 for (( i = 0; i < no_node; i++ )); do
