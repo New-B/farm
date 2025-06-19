@@ -185,54 +185,59 @@ char* RdmaResource::GetSlot(int slot) {
   // TODO: check slot == tail
   return (char*) ((uintptr_t)comm_buf[BPOS(slot)]->addr + BOFF(slot));
 }
-
-int RdmaResource::PostRecv(int n) {
-  ibv_recv_wr rr[n];
-  memset(rr, 0, sizeof (ibv_recv_wr)*n);
-  ibv_sge sge[n];
+/* 主要功能：
+ * 1.发布RDMA接收请求：为RDMA通信准备接收缓冲区；将接收请求提交到共享接收队列(SRQ)
+ * 2.管理接收缓冲区：使用slots数据结构管理接收缓冲区的状态(是否被占用)；动态分配接收缓冲区并注册为RDMA内存区域。
+ * 3.处理接收请求失败的情况：如果接收请求提交失败，清理相关资源并更新缓冲区状态。
+ */
+int RdmaResource::PostRecv(int n) { //n为最大待处理消息数
+  ibv_recv_wr rr[n];  //定义接收请求数组rr
+  memset(rr, 0, sizeof (ibv_recv_wr)*n);  //初始化接收请求
+  ibv_sge sge[n];  //定义缓冲区描述符数组sge
   int i, ret;
-  int head_init = slot_head;
-  for (i = 0; i < n;) {
-    if (slots.at(slot_head) == true) {
-      if (++slot_head == slot_inuse) slot_head = 0;
-      if (slot_head == head_init) {
+  int head_init = slot_head;  //记录初始的接收槽头部索引，用于后续循环中检查是否遍历完所有接收槽
+  //遍历接收槽并准备接收请求
+  for (i = 0; i < n;) { //遍历接收槽，找到空闲的接收槽
+    if (slots.at(slot_head) == true) { //检查当前槽是否被占用
+      if (++slot_head == slot_inuse) slot_head = 0; //如果到达槽尾部，循环回到槽头部
+      if (slot_head == head_init) { //如果遍历完所有接收槽仍没有找到空闲槽，记录错误日志并退出
         epicLog(LOG_FATAL, "cannot find free recv slot (%d)", n);
         break;
       }
-      continue;
+      continue; //如果当前槽已被占用，继续检查下一个槽
     }
-    int bpos = BPOS(slot_head);
-    int boff = BOFF(slot_head);
+    int bpos = BPOS(slot_head); //计算缓冲区基地址
+    int boff = BOFF(slot_head); //计算缓冲区偏移量
+    //为每个接收槽构造缓冲区描述符sge和接收请求rr
+    sge[i].length = MAX_REQUEST_SIZE;  //设置缓冲区长度
+    sge[i].lkey = comm_buf[bpos]->lkey; //获取缓冲区的本地密钥 
+    sge[i].addr = (uintptr_t)comm_buf[bpos]->addr + boff; //获取缓冲区的实际地址
 
-    sge[i].length = MAX_REQUEST_SIZE;
-    sge[i].lkey = comm_buf[bpos]->lkey;
-    sge[i].addr = (uintptr_t)comm_buf[bpos]->addr + boff;
-
-    rr[i].wr_id = slot_head;
-    rr[i].num_sge = 1;
-    rr[i].sg_list = &sge[i];
-    if (i+1 < n) rr[i].next = &rr[i+1];
+    rr[i].wr_id = slot_head; //设置接收请求的ID为当前槽的索引 
+    rr[i].num_sge = 1; //设置缓冲区描述符数量，接收请求的SGE数量为1
+    rr[i].sg_list = &sge[i]; //将缓冲区描述符指针赋值给接收请求的sg_list字段，设置缓冲区描述符列表
+    if (i+1 < n) rr[i].next = &rr[i+1]; //设置接收请求链表的下一个节点。如果不是最后一个接收请求，将下一个接收请求的指针赋值给当前接收请求的next字段
 
     //advance the slot_head by 1
-    slots.at(slot_head) = true;
-    if (++slot_head == slot_inuse) slot_head = 0;
-    i++;
+    slots.at(slot_head) = true; //将当前槽的状态设置为已占用
+    if (++slot_head == slot_inuse) slot_head = 0;  //更新接收槽头部索引。如果到达槽尾部，循环回到槽头部
+    i++; //增加成功构造的接收请求数量
   }
-  ret = i;
-
-  if (i > 0) {
-    rr[i-1].next = nullptr;
+  ret = i;  //保存成功构造的接收请求数量
+  //提交接收请求
+  if (i > 0) { //如果成功构造了接收请求 
+    rr[i-1].next = nullptr; //将最后一个接收请求的next字段设置为nullptr，表示这是接收请求链表的末尾 
     ibv_recv_wr* bad_rr;
-    if (ibv_post_srq_recv(srq, rr, &bad_rr)) {
-      epicLog(LOG_WARNING, "post recv request failed (%d:%s)\n",
+    if (ibv_post_srq_recv(srq, rr, &bad_rr)) { //调用ibv_post_srq_recv将接收请求提交到共享队列SRQ 
+      epicLog(LOG_WARNING, "post recv request failed (%d:%s)\n", //如果提交失败，记录警告日志并清理相关资源
           errno, strerror (errno));
-      int s = bad_rr->wr_id;
-      ret -= RMINUS(slot_head, s, slot_inuse);
-      while (s != slot_head) {
-        slots.at(s) = false;
-        if (++s == slot_inuse) s = 0;
+      int s = bad_rr->wr_id; //获取提交失败的接收请求的ID
+      ret -= RMINUS(slot_head, s, slot_inuse);  //更新成功提交的接收请求数量
+      while (s != slot_head) { //清理失败的接收槽状态
+        slots.at(s) = false; //将失败的接收槽标记为未占用
+        if (++s == slot_inuse) s = 0;  //更新接收槽索引
       }
-      slot_head = s;
+      slot_head = s; //更新接收槽头部索引
     }
   }
   return ret;
@@ -314,25 +319,35 @@ RdmaResource* RdmaResourceFactory::GetRdmaResource (
 /*
  * TODO: check whether it is necessary if we already use the epoll mechanism
  */
+/*
+ * 功能：从RDMA完成事件通道中获取完成队列事件；确认完成队列事件，允许队列继续处理新的事件；请求下一次完成队列事件通知，确保事件处理的连续性。并设置通知机制以便处理后续事件
+ * 返回值：true-成功获取事件并设置通知；false-获取事件或设置通知失败
+ * RDMA使用完成队列CQ和完成事件通道Completion Event Channel来处理异步事件。
+ * GetCompEvent函数是事件处理的一部份，确保完成队列事件能够被正确处理和获取。该函数是RDMA通信的核心函数之一，确保完成队列事件处理的连续性和可靠性。
+ */
 bool RdmaResource::GetCompEvent() const {
+  //获取完成队列事件
   struct ibv_cq *ev_cq;
   void *ev_ctx;
   int ret;
-  ret = ibv_get_cq_event(channel, &ev_cq, &ev_ctx);
-  if (ret) {
+  ret = ibv_get_cq_event(channel, &ev_cq, &ev_ctx); //调用ibv_get_cq_event从RDMA完成事件通道中获取完成队列事件
+  /*channel-完成事件通道；ev_cq-指向触发事件的完成队列；ev_ctx-事件上下文。*/
+  if (ret) { //如果获取事件失败（ret!=0）。记录日志并返回false
     epicLog(LOG_FATAL, "Failed to get cq_event\n");
     return false;
   }
-  /* Ack the event */
-  ibv_ack_cq_events(ev_cq, 1);
+  /* Ack the event 确认事件*/
+  ibv_ack_cq_events(ev_cq, 1); //调用ibv_ack_cq_events确认完成队列事件。参数：ev_cq-指向触发事件的完成队列；1-确认的事件数量。
+  //确认事件后，完成队列可以继续处理新的事件
 
   /* Request notification upon the next completion event */
-  ret = ibv_req_notify_cq(ev_cq, 0);
-  if (ret) {
+  //请求下一次事件通知
+  ret = ibv_req_notify_cq(ev_cq, 0); //调用ibv_req_notify_cq请求完成队列的下一次事件通知。参数：ev_cq-指向触发事件的完成队列；1-表示仅在新的完成事件发生时通知。
+  if (ret) { //如果请求通知失败，记录错误并返回false
     fprintf (stderr, "Couldn't request CQ notification\n");
     return false;
   }
-  return true;
+  return true; //返回成功状态
 }
 
 RdmaContext* RdmaResource::NewRdmaContext(bool isForMaster) {
@@ -551,69 +566,103 @@ out:
   epicLog(LOG_DEBUG, "msg = %s\n", msg);
   return msg;
 }
-
+/* GetFreeSlot函数用于获取一个空闲的发送缓冲区槽，用于RDMA操作（如发送数据）、如果没有空闲槽，则返回nullptr。
+ * 动态管理发送缓冲区槽：使用slot_head和slot_tail来管理缓冲区的状态，确保缓冲区的循环使用，避免资源浪费
+ * 提高RDMA操作效率：快速获取空闲槽地址，用于RDMA操作(如发送数据)；如果缓冲区已满，即使返回nullptr，避免资源冲突
+ * 支持高并发RDMA通信：通过槽的动态管理，支持高并发的RDMA通信，允许多个RDMA操作同时进行而不会阻塞。确保缓冲区的高效使用。
+ * 数据结构和关键变量：
+ * - send_buf：发送缓冲区的内存区域，使用ibv_mr结构体表示。RDMA注册的发送缓冲区，存储所有发送槽
+ * - slot_head：指向当前可用的发送缓冲区槽的头部索引。指向当前可用的发送缓冲区，每次获取空闲槽后，向前移动。
+ * - slot_tail：指向发送缓冲区槽的尾部索引。指向当前已完成的发送缓冲区槽，在发送完成事件中更新
+ * - max_pending_msg：最大挂起消息数，表示发送缓冲区的容量。限制发送缓冲区的使用。
+ * - pending_msg：当前挂起的消息数，表示已发送但未完成的消息数量。
+ * - full：表示发送缓冲区是否已满的标志。
+ * - MAX_REQUEST_SIZE：每个发送缓冲区槽的大小，表示每个槽可以存储的数据量。
+ * 
+ * 流程：计算可用槽数量-检查槽是否可用-获取空闲槽的地址-更新槽状态-返回槽地址
+ * 功能：获取一个空闲的发送缓冲区槽，用于RDMA操作；动态管理发送缓冲区，支持高效通信
+ */
 char* RdmaContext::GetFreeSlot() {
+  //计算当前可用的发送缓冲区槽数量
+  //如果slot_tail>=slot_head，则可用槽数量为slot_tail - slot_head
+  //如果slot_tail<slot_head，则可用槽数量为slot_tail + max_pending_msg - slot_head 
   int avail = RMINUS(slot_tail, slot_head, max_pending_msg); //slot_head <= slot_tail ? slot_tail-slot_head : slot_tail+max_pending_msg-slot_head;
-  if (!avail && !full) avail = max_pending_msg;
+  if (!avail && !full) avail = max_pending_msg; //如果当前没有可用的槽且缓冲区未满，则将可用槽数量设置为最大挂起消息数max_pending_msg ，既认为所有槽都是可用的
   epicLog(LOG_DEBUG, "avail = %d, pending_msg = %d", avail, pending_msg);
-  if (avail <= 0 || pending_msg >= max_pending_msg) {
+  if (avail <= 0 || pending_msg >= max_pending_msg) { //如果没有可用槽， 或者 挂起的消息数达到最大，则记录日志并返回nullptr 
     epicLog(LOG_INFO, "all the slots are busy\n");
     return nullptr;
   }
   //epicLog(LOG_DEBUG, "get one free slot (to_signaled_send_msg = %d)", to_signaled_send_msg);
-
-  char* s = (char*)send_buf->addr + slot_head*MAX_REQUEST_SIZE;
-  if (++slot_head == max_pending_msg) slot_head = 0;
-  if (slot_head == slot_tail) full = true;
-  return s;
+  //获取空闲槽的地址
+  char* s = (char*)send_buf->addr + slot_head*MAX_REQUEST_SIZE; //send_buf->addr指向发送缓冲区的起始地址；slot_head*MAX_REQUEST_SIZE用于计算当前槽的偏移地址；每个槽的大小为MAX_REQUEST_SIZE。 
+  if (++slot_head == max_pending_msg) slot_head = 0; //将slot_head指针向前移动一个槽，如果slot_head到达缓冲区末尾，则循环回到缓冲区的起始位置。
+  if (slot_head == slot_tail) full = true; // //如果slot_head指针与slot_tail指针相等，则表示发送缓冲区已满，设置full标志为true。 
+  return s; //返回当前槽的地址，用于RDMA操作
 }
 
 bool RdmaContext::IsRegistered(const void* addr) {
   return ( (uintptr_t)addr >= (uintptr_t)send_buf->addr) && ((uintptr_t)addr < (uintptr_t)send_buf->addr+send_buf->length);
 }
-
+/* Rdma函数是RDMA操作的核心实现，目前只支持一种RDMA操作(IBV_WR_SEND、)，它负责构造RDMA请求并将其提交到对列队QP
+ * 参数说明：
+ * op: RDMA操作类型，IBV_WR_SEND表示发送操作
+ * src: 源数据缓冲区地址，表示要发送的数据
+ * len: 源数据缓冲区的长度，表示要发送的数据长度
+ * id: 工作请求的ID，用于标识该请求
+ * signaled: 是否需要发送完成事件，表示是否需要在发送完成后通知应用程序
+ * dest: 目标地址，表示数据要发送到的远程地址，仅用于写操作
+ * imm: 立即数值，仅用于写操作，表示要发送的立即数
+ * oldval: 旧值，仅用于比较和交换操作，表示要比较的旧值
+ * newval: 新值，仅用于比较和交换操作，表示要设置的新值
+ * 返回值：
+ * 如果操作成功，返回发送的数据长度；如果操作失败，返回-1或其他错误码
+ */
 ssize_t RdmaContext::Rdma(ibv_wr_opcode op , const void* src, size_t len, unsigned int id,
     bool signaled, void* dest, uint32_t imm, uint64_t oldval, uint64_t newval) {
-  epicAssert(pending_msg < max_pending_msg);
+  epicAssert(pending_msg < max_pending_msg);  //确保当前挂起的消息数未超过允许的最大值
 
-  if (op == IBV_WR_SEND) {
-    if (!IsRegistered(src) && len > MAX_RDMA_INLINE_SIZE) {
-      if (len > MAX_REQUEST_SIZE) {
+  if (op == IBV_WR_SEND) { //检查操作类型，目前仅支持发送操作 
+    if (!IsRegistered(src) && len > MAX_RDMA_INLINE_SIZE) { //处理发送缓冲区：如果源缓冲区未注册且数据长度超过最大内联大小MAX_RDMA_INLINE_SIZE，则需要将数据复制到一个空闲的发送缓冲区
+      if (len > MAX_REQUEST_SIZE) { //确保数据长度未超过允许的最大请求大小，如果超过，记录警告日志并触发断言
         epicLog(LOG_WARNING, "len = %d, MAX_REQUEST_SIZE = %d, src = %s\n", len, MAX_REQUEST_SIZE, src);
         epicAssert(false);
       }
-      char* sbuf = GetFreeSlot();
-      epicAssert(sbuf);
-      memcpy(sbuf, src, len);
-      zfree ((void*)src);
-      sge_list.addr = (uintptr_t)sbuf;
-      pending_send_msg++;
+      char* sbuf = GetFreeSlot(); //获取一个空闲的发送缓冲区，如果没有可用的缓冲区，则返回nullptr 
+      epicAssert(sbuf); //如果获取到的缓冲区为空，表示没有可用的发送缓冲区，触发断言
+      memcpy(sbuf, src, len); //将源缓冲区的数据复制到发送缓冲区
+      zfree ((void*)src); //释放源缓冲区的内存
+      sge_list.addr = (uintptr_t)sbuf; //设置SGE列表的地址sge_list.addr为发送缓冲区的地址
+      pending_send_msg++; //增加待发送消息计数器pending_send_msg，表示有一个新的消息待发送
     } else {
       //epicLog(LOG_DEBUG, "Registered mem");
-      if (IsRegistered(src)) pending_send_msg++;
-      sge_list.addr = (uintptr_t)src;
+      if (IsRegistered(src)) pending_send_msg++;  //如果源缓冲区已注册，则直接使用源缓冲区 
+      sge_list.addr = (uintptr_t)src; //设置SGE列表的地址sge_list.addr为源缓冲区的地址
     }
-    sge_list.lkey = send_buf->lkey;
+    sge_list.lkey = send_buf->lkey; //设置SGE列表的本地密钥sge_list.lkey为发送缓冲区的本地密钥
 
   } else {
     epicLog(LOG_WARNING, "unsupported RDMA OP");
     return -1;
   }
-
+  //构造工作请求
   sge_list.length = len;
-
+  //设置工作请求的操作码、工作请求ID、SGE列表、SGE数量、下一个工作请求指针、发送标志等属性 
   wr.opcode = op;
   wr.wr_id = -1;
   wr.sg_list = &sge_list;
   wr.num_sge = len == 0 ? 0 : 1;
   wr.next = nullptr;
   wr.send_flags = 0;
+  //如果数据长度小于等于最大内联大小，则设置发送标志为IBV_SEND_INLINE，表示使用内联发送
   if (len <= MAX_RDMA_INLINE_SIZE) wr.send_flags = IBV_SEND_INLINE;
 
-  pending_msg++;
+  pending_msg++; //更新挂起消息计数，计算当前需要发送完成事件的消息数
   uint16_t curr_to_signaled_send_msg = pending_send_msg - to_signaled_send_msg;
   uint16_t curr_to_signaled_w_r_msg = pending_msg - pending_send_msg - to_signaled_w_r_msg;
+  //检查是否需要发送完成事件
   if (curr_to_signaled_send_msg + curr_to_signaled_w_r_msg == max_unsignaled_msg || signaled) { //we signal msg for every max_unsignaled_msg
+    //如果达到最大未发送完成事件的消息数，或者显示要求发送完成事件，则设置发送标志为IBV_SEND_SIGNALED
     wr.send_flags |= IBV_SEND_SIGNALED;
     if (wr.opcode == IBV_WR_SEND) {
       epicLog(LOG_DEBUG, "signaled %s\n", (char*)sge_list.addr);
@@ -635,12 +684,13 @@ ssize_t RdmaContext::Rdma(ibv_wr_opcode op , const void* src, size_t len, unsign
      * that the wr_id of each completed work request will be checked
      * against to see if there are any pending invalidate WRs.
      */
+    //设置工作请求ID，包含消息ID和挂起消息计数。 wr_id的高16位表示当前待发送消息数，低32位表示当前待发送和待写入消息数
     wr.wr_id = (id & HALF_BITS) + ( (uint64_t)(curr_to_signaled_send_msg & QUARTER_BITS) << 48) + ((uint64_t)(curr_to_signaled_w_r_msg & QUARTER_BITS) << 32);
   }
-
+  //提交发送请求
   struct ibv_send_wr *bad_wr;
-  if (ibv_post_send(qp, &wr, &bad_wr)) {
-    epicLog(LOG_WARNING, "ibv_post_send failed (%d:%s)\n", errno, strerror (errno));
+  if (ibv_post_send(qp, &wr, &bad_wr)) { //调用ibv_post_send函数将工作请求提交到队列对QP中
+    epicLog(LOG_WARNING, "ibv_post_send failed (%d:%s)\n", errno, strerror (errno)); //如果提交失败，记录警告日志并返回错误码
     return -2;
   }
 
@@ -690,30 +740,38 @@ void RdmaContext::ProcessPendingRequests(int n) {
     pending_requests.pop();
   }
 }
-
+/*
+ * 功能：处理RDMA发送完成事件；更新发送缓冲区槽状态；更新消息计数和缓冲区状态；返回工作请求的ID
+ * 参数：wc：RDMA工作完成项，包含发送完成事件的相关信息。
+ * 返回值：id:工作请求的ID，用于标识发送完成的请求
+ *
+ * */
 unsigned int RdmaContext::SendComp(ibv_wc& wc) {
-  unsigned int id = wc.wr_id  & HALF_BITS;
-  uint16_t curr_to_signaled_send_msg = wc.wr_id >> 48;
-  uint16_t curr_to_signaled_w_r_msg = wc.wr_id >> 32 & QUARTER_BITS;
+  //提取工作请求ID和消息计数
+  unsigned int id = wc.wr_id  & HALF_BITS; //从wc.wr_id提取工作请求的ID和消息计数：id：低32位，用于标识工作请求。
+  uint16_t curr_to_signaled_send_msg = wc.wr_id >> 48; //curr_to_signaled_send_msg：高16位，表示当前发送完成的消息数
+  uint16_t curr_to_signaled_w_r_msg = wc.wr_id >> 32 & QUARTER_BITS; //curr_to_signaled_w_r_msg：中间16位，表示当前写完成的消息数
 
-  epicLog(LOG_DEBUG, "id = %u, %u, %u", id, curr_to_signaled_send_msg, curr_to_signaled_w_r_msg);
+  epicLog(LOG_DEBUG, "id = %u, %u, %u", id, curr_to_signaled_send_msg, curr_to_signaled_w_r_msg); //记录日志，输出提取的值
+  //更新发送缓冲区槽状态
+  slot_tail += curr_to_signaled_send_msg; //更新发送缓冲区槽的尾部索引slot_tail：增加当前发送完成的消息数。slot_tail：发送缓冲区槽的尾部索引，指向已完成的发送缓冲区槽
+  if (slot_tail >= max_pending_msg) slot_tail -= max_pending_msg; //如果slot_tail超过缓冲区的最大消息数max_pending_msg，则循环回到缓冲区的起始位置
+  //更新消息计数
+  to_signaled_send_msg -= curr_to_signaled_send_msg; //to_signaled_send_msg：减少当前发送完成的消息数。to_signaled_send_msg：待发送完成事件的消息数
+  to_signaled_w_r_msg -= curr_to_signaled_w_r_msg; //to_signaled_w_r_msg：减少当前写完成的消息数。to_signaled_w_r_msg：待写完成事件的消息数
+  pending_msg -= (curr_to_signaled_send_msg + curr_to_signaled_w_r_msg); //pending_msg：减少当前发送完成和写完成的消息数。pending_msg：挂起的消息总数
+  pending_send_msg -= curr_to_signaled_send_msg; //pending_send_msg：减少当前发送完成的消息数。pending_send_msg：挂起的发送消息数
 
-  slot_tail += curr_to_signaled_send_msg;
-  if (slot_tail >= max_pending_msg) slot_tail -= max_pending_msg;
-
-  to_signaled_send_msg -= curr_to_signaled_send_msg;
-  to_signaled_w_r_msg -= curr_to_signaled_w_r_msg;
-  pending_msg -= (curr_to_signaled_send_msg + curr_to_signaled_w_r_msg);
-  pending_send_msg -= curr_to_signaled_send_msg;
-
-
+  //断言检查：检查消息计数是否符合预期
+  //当前发送完成和写完成的消息数不超过最大未发送完成事件的消息数max_unsignaled_msg
   epicAssert(curr_to_signaled_send_msg + curr_to_signaled_w_r_msg <= max_unsignaled_msg);
+  //已发送和已写完成的消息数不超过挂起的消息数pending_msg
   epicAssert(to_signaled_send_msg + to_signaled_w_r_msg <= pending_msg);
-
-  if (full && curr_to_signaled_send_msg) full = false;
-
+  //更新缓冲区满状态：如果缓冲区之前处于满状态(full=true)，且当前有发送完成的消息，则将缓冲区状态更新为非满状态
+  if (full && curr_to_signaled_send_msg) full = false;  //full：缓冲区是否已满的标志
+  //检查挂起请求队列：确保挂起的请求队列pending_requests已清空
   epicAssert(pending_requests.empty());
-
+  //返回工作请求ID
   return id;
 }
 

@@ -168,97 +168,126 @@ Master::~Master() {
   delete st;
 }
 
-
+/* 功能：解析来自远程客户端的请求消息-将消息内容反序列化为工作请求对象-调用对应的处理函数处理请求
+ * 参数：client：发送请求的客户端对象；msg：接收到的消息内容；size：消息大小
+ * 数据结构和关键变量：WorkRequest：工作请求对象，包括操作类型、数据地址、大小等信息
+ * 该函数是主节点和远程客户端通信的核心函数，确保请求的正确解析和处理
+ * */
 void Master::FarmProcessRemoteRequest(Client* client, const char* msg, uint32_t size) {
-  WorkRequest* wr = new WorkRequest;
-  int len;
-  if (wr->Deser(msg, len)) {
-    epicLog(LOG_WARNING, "de-serialize the work request failed\n");
-  } else {
+  WorkRequest* wr = new WorkRequest; //创建一个新的工作请求对象wr
+  int len; //定义一个变量len，用于存储反序列化后的消息长度
+  if (wr->Deser(msg, len)) { //调用WorkRequest::Deser方法，将消息内容反序列化为工作请求对象
+    epicLog(LOG_WARNING, "de-serialize the work request failed\n"); //如果返序列化失败，记录警告日志
+  } else { //如果返序列化成功，记录接收到的消息的详细信息，包括操作类型、消息大小和发送方的工作节点id
     epicLog(LOG_DEBUG, "Master receives a %s msg with size %d (%d) from client %d", 
         workToStr(wr->op), size, len, client->GetWorkerId());
-    epicAssert(len == size);
-    ProcessRequest(client, wr);
+    epicAssert(len == size); //检查返反列化后的消息长度是否与接收到的消息大小一致
+    ProcessRequest(client, wr); //调用请求处理函数
   }
 }
-
+/* 功能：根据操作类型处理请求；更新客户端状态或存储键值对；构造回复消息并发送给客户端 
+ * 参数：client：发送请求的客户端对象；wr：工作请求对象，包含操作类型、数据地址、大小等信息
+ * 动态管理资源：使用挂起队列to_serve_kv_request动态管理未完成的键值存储请求。使用缓冲区槽优化消息发送
+ *
+ * */
 void Master::ProcessRequest(Client* client, WorkRequest* wr) {
-  switch(wr->op) {
-    case UPDATE_MEM_STATS:
+  switch(wr->op) { //根据工作请求的操作类型(op)执行不同的处理逻辑 
+    case UPDATE_MEM_STATS: //处理更新内存统计信息的请求-更新客户端的内存统计信息-如果未同步的工作节点数达到阈值，广播内存统计信息给所有客户端  
+    /* 数据结构和关键变量：unsynced_workers-未同步的工作节点队列，存储所有未同步的工作节点
+     * conf->unsynced_th：未同步的工作节点的阈值；buf：存储广播消息内容的缓冲区；send_buf：存储序列化后的消息内容的缓冲区
+     * 
+     */
       {
-        Size curr_free = client->GetFreeMem();
-        client->SetMemStat(wr->size, wr->free);
-        unsynced_workers.push(client);
+        Size curr_free = client->GetFreeMem(); //获取客户端当前的空闲内存大小
+        client->SetMemStat(wr->size, wr->free); //更新客户端的内存统计信息，包括总内存大小和空闲内存大小
+        unsynced_workers.push(client); //将客户端添加到未同步的工作节点队列unsynced_workers中 
 
-        if(unsynced_workers.size() == conf->unsynced_th) {
-          WorkRequest lwr{};
-          lwr.op = BROADCAST_MEM_STATS;
-          char buf[conf->unsynced_th*MAX_MEM_STATS_SIZE+1]; //op + list + \0
-          char send_buf[MAX_REQUEST_SIZE];
-
+        if(unsynced_workers.size() == conf->unsynced_th) { //如果未同步的工作节点数达到阈值conf->unsynced_th，广播内存信息给所有客户端
+          //构造广播消息
+          WorkRequest lwr{}; //创建一个新的工作请求对象lwr
+          lwr.op = BROADCAST_MEM_STATS; //设置操作类型为BROADCAST_MEM_STATS 
+          char buf[conf->unsynced_th*MAX_MEM_STATS_SIZE+1]; //op + list + \0  //定义缓冲区buf用于存储广播消息内容
+          char send_buf[MAX_REQUEST_SIZE]; //定义发送缓冲区send_buf用于序列化消息
+          //遍历未同步的工作节点
           int n = 0;
-          while(!unsynced_workers.empty()) {
-            Client* lc = unsynced_workers.front();
-            n += sprintf(buf+n, "%d:%ld:%ld", lc->GetWorkerId(), lc->GetTotalMem(), lc->GetFreeMem());
-            unsynced_workers.pop();
+          while(!unsynced_workers.empty()) { //遍历未同步的工作节点队列unsynced_workers
+            Client* lc = unsynced_workers.front(); //获取队列头部的工作节点
+            n += sprintf(buf+n, "%d:%ld:%ld", lc->GetWorkerId(), lc->GetTotalMem(), lc->GetFreeMem()); //使用sprintf将工作节点的ID、总内存和空闲内存格式化为字符串并追加到缓冲区buf中
+            unsynced_workers.pop(); //从队列中移除已处理的工作节点
           }
-          lwr.size = conf->unsynced_th;
-          lwr.ptr = buf;
-          int len = 0;
-          lwr.Ser(send_buf, len);
-          Broadcast(send_buf, len);
-        }
-        delete wr;
-        break;
+          //设置广播消息的内容
+          lwr.size = conf->unsynced_th; //设置工作请求对象lwr的大小为未同步的工作节点数conf->unsynced_th
+          lwr.ptr = buf; //设置工作请求对象lwr的指针指向消息内容缓冲区buf
+          int len = 0; //定义一个变量len，用于存储序列化后的消息长度
+          lwr.Ser(send_buf, len); //调用WorkRequest::Ser方法，将工作请求对象lwr序列化到发送缓冲区send_buf中，并记录序列化后的长度
+          Broadcast(send_buf, len); //使用Broadcast函数将内存统计信息广播给所有客户端 
+          // 插入日志信息，记录广播成功
+          epicLog(LOG_INFO, "Successfully broadcasted memory stats to all clients.");
+        } //删除工作请求对象
+        // 插入日志信息，记录更新内存统计信息成功
+        epicLog(LOG_INFO, "Successfully updated memory stats for client %d.", client->GetWorkerId());
+        delete wr; //删除当前处理的工作请求wr，释放内存
+        break; //退出case UPDATE_MEM_STATS的处理逻辑
       }
-    case FETCH_MEM_STATS:
+    case FETCH_MEM_STATS: //处理获取内存统计信息的请求-构造内存统计信息回复消息并发送给请求的客户端
+    /* 数据结构和关键变量：widCliMap:工作节点映射，存储所有工作节点的ID和对应的客户端对象
+     * buf：存储回复消息内容的缓冲区；send_buf：存储序列化后的消息内容的缓冲区
+     * 
+     */ 
       {
-        UpdateWidMap();
+        UpdateWidMap(); //更新工作节点映射widCliMap。确保widCliMap包含最新的工作节点信息
         if(widCliMap.size() == 1) { //only have the info of the worker, who sends the request
-          break;
+          break; //如果工作节点映射中只有发送请求的工作节点，则无需回复，直接退出处理逻辑。避免发送冗余的内存统计信息
         }
-        WorkRequest lwr{};
-        lwr.op = FETCH_MEM_STATS_REPLY;
-        char buf[(widCliMap.size()-1) * MAX_MEM_STATS_SIZE + 1]; //op + list + \0
-        char* send_buf = client->GetFreeSlot();
-        bool busy = false;
-        if(send_buf == nullptr) {
-          busy = true;
-          send_buf = (char *)zmalloc(MAX_REQUEST_SIZE);
+        //构造回复消息
+        WorkRequest lwr{};  //创建一个新的工作请求lwr，。构造内存统计信息回复消息并发送给请求的客户端
+        lwr.op = FETCH_MEM_STATS_REPLY; //设置操作类型为FETCH_MEM_STATS_REPLY
+        char buf[(widCliMap.size()-1) * MAX_MEM_STATS_SIZE + 1]; //op + list + \0 //定义缓冲区buf用于存储回复消息内容，大小为其他工作节点的数量乘以每个工作节点的最大内存统计信息大小
+        char* send_buf = client->GetFreeSlot(); //获取客户端的空闲缓冲区槽send_buf，用于发送回复消息
+        bool busy = false; //定义一个布尔变量busy，初始化为false，表示缓冲区未被临时分配。
+        //检查缓冲区是否可用
+        if(send_buf == nullptr) {  //如果没有可用的发送缓冲区槽
+          busy = true; //设置busy标志为true，记录日志说明使用了临时缓冲区
+          send_buf = (char *)zmalloc(MAX_REQUEST_SIZE); //使用中zamalloc动态分配一个临时缓冲区send_buf，大小为MAX_REQUEST_SIZE
           epicLog(LOG_INFO, "We don't have enough slot buf, we use local buf instead");
-        }
+        } 
 
         int n = 0, i = 0;
-        for (auto entry: widCliMap) {
-          if(entry.first == client->GetWorkerId()) continue;
+        for (auto entry: widCliMap) { //遍历工作节点映射widCliMap
+          if(entry.first == client->GetWorkerId()) continue; //跳过发送请求的工作节点
           Client* lc = entry.second;
-          n += sprintf(buf + n, "%d:%ld:%ld:", lc->GetWorkerId(),
+          n += sprintf(buf + n, "%d:%ld:%ld:", lc->GetWorkerId(), //将每个工作节点的ID、总内存和空闲内存格式化为字符串并追加到缓冲区buf中
               lc->GetTotalMem(), lc->GetFreeMem());
-          i++;
-        }
-        lwr.size = widCliMap.size()-1;
-        epicAssert(widCliMap.size()-1 == i);
-        lwr.ptr = buf;
+          i++; //记录处理的工作节点数量i
+        } //生成内存统计信息的回复内容
+        //设置回复消息的内容
+        lwr.size = widCliMap.size()-1; //设置工作请求对象lwr的大小为工作节点数量减去1（排除发送请求的工作节点）
+        epicAssert(widCliMap.size()-1 == i); //使用断言检查处理的工作节点数量是否与预期一致
+        lwr.ptr = buf; //设置工作请求对象lwr的指针指向消息内容缓冲区buf
+        //序列化工作请求对象lwr到发送缓冲区send_buf中
         int len = 0, ret;
-        lwr.Ser(send_buf, len);
-        if((ret = client->Send(send_buf, len)) != len) {
-          epicAssert(ret == -1);
+        lwr.Ser(send_buf, len); //调用WorkRequest::Ser方法，将工作请求对象lwr序列化到发送缓冲区send_buf中，并记录序列化后的长度len
+        if((ret = client->Send(send_buf, len)) != len) { //调用Client::Send方法，将序列化后的消息发送给客户端
+          epicAssert(ret == -1); //如果发送失败或部分发送，记录日志并断言发送失败的原因是缓冲区槽繁忙(ret==-1)
           epicLog(LOG_INFO, "slots are busy");
         }
-        epicAssert((busy && ret == -1) || !busy);
-        delete wr;
+        epicAssert((busy && ret == -1) || !busy); //断言发送结果是否符合预期：
+        //如果缓冲区是临时分配(busy==true)，发送失败(ret==-1)是可以接受的，如果缓冲区不是临时分配的(busy==false)，则发送应该成功(ret!=-1)。
+        // 插入日志信息，记录内存统计信息回复成功
+        epicLog(LOG_INFO, "Successfully sent memory stats reply to client %d.", client->GetWorkerId());
+        delete wr; //删除当前处理的工作请求wr，释放内存
         break;
       }
-    case PUT:
+    case PUT: //键值存储PUT
       {
         void* ptr = zmalloc(wr->size);
         memcpy(ptr, wr->ptr, wr->size);
-        kvs[wr->key] = pair<void*, Size>(ptr, wr->size);
+        kvs[wr->key] = pair<void*, Size>(ptr, wr->size); //将键值对存储到kvs中
 
         //epicLog(LOG_WARNING, "key = %d, value = %lx", wr->key, *(GAddr*)kvs[wr->key].first);
 
-        // send reply back
-        wr->op = PUT_REPLY;
+        // send reply back  构造回复消息
+        wr->op = PUT_REPLY; //
         wr->status = SUCCESS;
         char* send_buf = client->GetFreeSlot();
         bool busy = false;
@@ -291,9 +320,9 @@ void Master::ProcessRequest(Client* client, WorkRequest* wr) {
         delete wr;
         break;
       }
-    case GET:
+    case GET: //键值存储GET
       {
-        if(kvs.count(wr->key)) {
+        if(kvs.count(wr->key)) { //如果键值存在，构造回复消息并发送给客户端
           wr->ptr = kvs.at(wr->key).first;
           wr->size = kvs.at(wr->key).second;
           wr->op = GET_REPLY;
@@ -314,34 +343,39 @@ void Master::ProcessRequest(Client* client, WorkRequest* wr) {
           }
           epicAssert((busy && ret == -1) || !busy);
           delete wr;
-        } else {
+        } else { //如果键值不存在，将请求加入挂起队列to_serve_kv_request
           to_serve_kv_request[wr->key].push(pair<Client*, WorkRequest*>(client, wr));
         }
 
         break;
       }
-    default:
+    default: //如果操作类型未知，记录警告日志
       epicLog(LOG_WARNING, "unrecognized work request %d", wr->op);
       break;
   }
 }
-
+/* 功能：将消息广播给所有客户端。通过遍历qpCliMap尝试使用客户端的空闲缓冲区发送消息。如果没有空闲缓冲区，则动态分配一个临时缓冲区
+ * 参数：buf：要发送的消息内容；len：消息的长度
+ * 数据结构和关键变量：qpCliMap：客户端映射表，存储所有客户端的连接信息
+ * 函数包含了多种检查和断言，确保消息发送的正确性，并记录日志以便调试
+ * */
 void Master::Broadcast(const char* buf, size_t len) {
-  for(auto entry: qpCliMap) {
-    char* send_buf = entry.second->GetFreeSlot();
-    bool busy = false;
-    if(send_buf == nullptr) {
+  for(auto entry: qpCliMap) {//遍历qpCliMap(一个unordered_map，存储了队列对编号qpn和对应客户端对象Client*的映射关系)中的每个客户端，对每个客户端执行广播操作
+    char* send_buf = entry.second->GetFreeSlot();// 调用客户端对象的GetFreeSlot方法获取一个可用的发送缓冲区，如果没有可用的发送缓冲区，则返回nullptr 
+    bool busy = false; 
+    if(send_buf == nullptr) {//检查是否成功获取到空闲的发送缓冲区槽
       busy = true;
-      send_buf = (char *)zmalloc(MAX_REQUEST_SIZE);
+      send_buf = (char *)zmalloc(MAX_REQUEST_SIZE); //如果没有空闲槽，则需要分配一个新的缓冲区。使用zmalloc分配一个新的缓冲区，并记录日志
       epicLog(LOG_INFO, "We don't have enough slot buf, we use local buf instead");
     }
-    memcpy(send_buf, buf, len);
+    memcpy(send_buf, buf, len); //将消息内容复制到发送缓冲区中。目标：准备好要发送的数据
 
-    size_t sent = entry.second->Send(send_buf, len);
-    epicAssert((busy && sent == -1) || !busy);
-    if(len != sent) {
-      epicAssert(sent == -1);
+    size_t sent = entry.second->Send(send_buf, len); //调用客户端的Send方法，将消息发送给客户端。目标：实际执行消息发送操作
+    //为确保程序逻辑的正确性
+    epicAssert((busy && sent == -1) || !busy); //断言发送操作的结果是否符合预期：如果缓冲区临时分配(busy==true)且发送失败(sent==-1)，则断言成立；如果缓冲区不是临时分配(busy==false)，发送应该成功。
+    if(len != sent) { //检查时机发送的字节数是否与预期的消息长度一致。如果发送失败或部分发送，记录日志并进行断言
+      epicAssert(sent == -1); //如果发送失败，sent应该为-1
       epicLog(LOG_INFO, "broadcast to %d failed (expected %d, but %d)\n", len, sent);
-    }
+    } //结束当前客户端的广播处理，继续处理下一个客户端
   }
 }

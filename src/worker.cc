@@ -180,38 +180,38 @@ void Worker::StartService(Worker* w) {
  *
  */
 int Worker::PostConnectMaster(int fd, void* data) {
-  char inmsg[MAX_WORKERS_STRLEN+1];
-  char outmsg[MAX_IPPORT_STRLEN+1];
+  char inmsg[MAX_WORKERS_STRLEN+1]; //定义一个字符数组inmsg，用于存储从主节点读取的工作节点列表
+  char outmsg[MAX_IPPORT_STRLEN+1]; //定义一个字符数组outmsg，用于存储当前工作节点的IP和端口信息
 
   epicLog(LOG_DEBUG, "waiting for master reply with worker list");
 
   /* waiting for server's response */
-  int n = read(fd, inmsg, MAX_WORKERS_STRLEN);
-  if (n <= 0) {
+  int n = read(fd, inmsg, MAX_WORKERS_STRLEN);  //从主节点读取已注册的工作节点列表(IP和端口)
+  if (n <= 0) { //如果读取失败，记录警告日志并返回错误码 
     epicLog(LOG_WARNING, "Failed to read worker ip/ports (%s)\n", strerror(errno));
     return -1;
   }
-  inmsg[n] = '\0';
+  inmsg[n] = '\0'; //存储主节点发送的工作节点列表，将读取的字符串以'\0'结尾，确保字符串正确终止
   epicLog(LOG_DEBUG, "inmsg = %s (n = %d, MAX_WORKERS_STRLEN = %d)", inmsg, n, MAX_WORKERS_STRLEN); 
 
-  n = sprintf(outmsg, "%s:%d", this->GetIP().c_str(), this->GetPort());
-  if(n != write(fd, outmsg, n)) {
+  n = sprintf(outmsg, "%s:%d", this->GetIP().c_str(), this->GetPort()); //构造当前工作节点的IP和端口信息
+  if(n != write(fd, outmsg, n)) { //将当前工作节点的IP和端口信息发送给主节点 
     epicLog(LOG_WARNING, "send worker ip/port failed (%s)\n", strerror(errno));
     return -2;
   }
   epicLog(LOG_DEBUG, "send: %s; received: %s\n", outmsg, inmsg);
-
+  //解析主节点发送的工作节点列表
   vector<string> splits;
-  Split(inmsg, splits, ',');
+  Split(inmsg, splits, ','); //将主节点发送的工作节点列表按逗号分隔，解析出每个工作节点的IP和端口信息 
   for(string s: splits) {
     if(s.length() < 9) continue;
     vector<string> ip_port;
     Split(s, ip_port, ':');
     epicLog(LOG_INFO, "ip_port = %s", s.c_str());
     epicAssert(ip_port.size() == 2);
-
-    Client* c = this->NewClient();
-    c->ExchConnParam(ip_port[0].c_str(), atoi(ip_port[1].c_str()), this);
+    //与已注册的工作节点建立RDMA连接
+    Client* c = this->NewClient(); //为每个工作节点创建一个新的Client对象。this指针指向当前调用的Worker::PostConnectMaster函数的Worker类实例
+    c->ExchConnParam(ip_port[0].c_str(), atoi(ip_port[1].c_str()), this); //与目标工作节点交换RDMA连接参数
   }
   return 0;
 }
@@ -352,16 +352,26 @@ Worker::~Worker() {
   delete wqueue;
   delete st;
 }
-
+/* 功能：向指定客户端Client提交工作请求WorkRequest。
+ *    1.获取发送缓冲区槽
+ *    2.根据工作请求的操作类型生成消息
+ *    3.将消息发送到目标客户端
+ *    4.返回请求的处理状态
+ * 
+ *    操作类型：支持FARM_READ_REPLY、PREPARE、VLIDATE、ACKNOWLEDGE等操作类型，根据操作类型生成不同的消息。
+ * 参数：cli：目标客户端，用于发送请求。wr：工作请求对象，包含请求的操作类型、数据地址、大小等信息。
+ * 返回值：1-请求处理完成。0-请求未完成，需要继续处理。-1-资源不可用，需要等待。
+ */
 int Worker::FarmSubmitRequest(Client* cli, WorkRequest* wr) { 
-
-  char* sbuf = cli->GetFreeSlot();
-  if(unlikely(sbuf == nullptr)) {
+  //获取发送缓冲区槽
+  char* sbuf = cli->GetFreeSlot(); //调用Client::GetFreeSlot获取一个发送缓冲区槽
+  if(unlikely(sbuf == nullptr)) { //如果没有可用的缓冲区槽，返回-1，表示资源不可用，需要等待。
     // resouce unavailable; need to wait
     return -1;
   }
 
   char buf[MAX_REQUEST_SIZE];
+  //处理FARM_READ_REPLY操作
   if (wr->op == FARM_READ_REPLY) {
     epicAssert(IsLocal(wr->addr));
     char* local = (char*)ToLocal(wr->addr);
@@ -382,22 +392,22 @@ int Worker::FarmSubmitRequest(Client* cli, WorkRequest* wr) {
       after = __atomic_load_n((version_t*)local, __ATOMIC_ACQUIRE);
     } while (is_version_diff(before, after));
 
-    if (unlikely(before == 0 || size == -1)) {
+    if (unlikely(before == 0 || size == -1)) { //如果地址无效或数据读取失败，设置状态为READ_ERROR
       epicLog(LOG_INFO, "Address %lx is not allocated or has been free'ed", wr->addr);
       wr->status = Status::READ_ERROR;
     } else {
-      wr->status = Status::SUCCESS;
+      wr->status = Status::SUCCESS; //否则设置状态为SUCCESS
       wr->size = sizeof(before) + sizeof(size) + size;
       epicAssert(wr->size <= MAX_REQUEST_SIZE);
       wr->ptr = buf;
     }
   }
-
-  int len;
-  wr->Ser(sbuf, len); 
+  //序列化工作请求
+  int len; //表示序列化后的数据长度
+  wr->Ser(sbuf, len);  //调用WorkRequest::Ser方法，将工作请求序列化到发送缓冲区sbuf中
   int finished = 1;
-
-  if (wr->op == PREPARE) {
+  //处理不同的操作类型
+  if (wr->op == PREPARE) { //PREPARE操作
     uint16_t cid = cli->GetWorkerId();
     len += local_txns_[wr->id]->generatePrepareMsg(cid,
         sbuf + len, MAX_REQUEST_SIZE - len,
@@ -412,7 +422,7 @@ int Worker::FarmSubmitRequest(Client* cli, WorkRequest* wr) {
         local_txns_[wr->id]->getNumWobjForWid(cid), 
         tx_status_[wr->id]->progress_[cid]);
 
-  } else if (wr->op == VALIDATE) {
+  } else if (wr->op == VALIDATE) {  //VALIDATE操作
     uint16_t cid = cli->GetWorkerId();
     len += local_txns_[wr->id]->generateValidateMsg(cid,
         sbuf + len, MAX_REQUEST_SIZE - len,
@@ -426,20 +436,22 @@ int Worker::FarmSubmitRequest(Client* cli, WorkRequest* wr) {
         wr->nobj, 
         local_txns_[wr->id]->getNumRobjForWid(cid), 
         tx_status_[wr->id]->progress_[cid]);
-  } else if (wr->op == ACKNOWLEDGE) {
+
+  } else if (wr->op == ACKNOWLEDGE) { //ACKNOWLEDGE操作
     uint64_t txn_id = cli->GetWorkerId();
     txn_id = (txn_id<<32) | wr->id;
     epicLog(LOG_DEBUG, "finalize for txn %lx", txn_id);
     remote_txns_.erase(txn_id);
     nobj_processed.erase(txn_id);
   }
-
-  int ret = cli->Send(sbuf, len);
+  //发送请求
+  int ret = cli->Send(sbuf, len); //调用Clien::Send方法，将序列化后的请求发送到目标客户端
 
   epicLog(LOG_DEBUG, "Worker %d sends a %d:%s msg with wr_id %d, size %d, to Worker %d", 
       this->GetWorkerId(), wr->op, workToStr(wr->op), wr->id, len, cli->GetWorkerId());
-  epicAssert(ret == len);
+  epicAssert(ret == len); //检查发送的字节数是否与序列化后的长度一致
 
+  //返回结果，请求完成返回1；请求未完成，需要继续吹返回0. 
   if (finished)
     return 1;
   else
@@ -514,24 +526,29 @@ void Worker::FarmProcessLocalRequest(WorkRequest *wr) {
       break;
   }
 }
-
+/* 功能：解析来自远程客户端的请求消息；根据操作类型调用对应的处理函数；更新事务上下文和状态
+ * 参数：c：发送请求的客户端对象；msg：接收到的消息内容；size：消息的大小
+ * 事务动态管理：支持本地和远程事务的动态管理。根据事务ID区分不同的事务
+ * 执行流程：解析消息内容、提取操作类型和工作请求ID；根据操作类型确定事务上下文；返序列化工作请求；根据操作类型调用对应的处理函数
+ * 
+ */
 void Worker::FarmProcessRemoteRequest(Client* c, const char* msg, uint32_t size) {
-
+  //解析消息内容
   uint32_t wr_id;
   wtype wt;
 
   int len;
 
-  readInteger((char*) msg, wt, wr_id);
+  readInteger((char*) msg, wt, wr_id); //从消息中读取工作请求ID(wr_id)和操作类型(wt)
 
-  Work op = static_cast<Work>(wt);
-
+  Work op = static_cast<Work>(wt); //将操作类型装换位枚举类型Work
+  //记录日志：记录接收到的消息的详细信息，包括操作类型、工作请求ID、消息大小和发送方的工作节点ID
   epicLog(LOG_DEBUG, "Worker %d receives a %s message (wr_id %d, size %d bytes) from Worker %d", 
       this->GetWorkerId(), workToStr(op), wr_id, size, c->GetWorkerId());
 
   TxnContext *tx;
-
-  if (op == FETCH_MEM_STATS_REPLY || op == BROADCAST_MEM_STATS) {
+  //特殊操作类型处理
+  if (op == FETCH_MEM_STATS_REPLY || op == BROADCAST_MEM_STATS) { //如果操作类型是FETCH_MEM_STATS_REPLY或BROADCAST_MEM_STATS，解析消息内容并更新内存统计信息
     // adapted from GAM
     WorkRequest wr;
     wr.Deser(msg, len);
@@ -546,29 +563,30 @@ void Worker::FarmProcessRemoteRequest(Client* c, const char* msg, uint32_t size)
       wid = stats[i*3];
       mtotal = stats[i*3+1];
       mfree =stats[i*3+2];
-      if(GetWorkerId() == wid) {
+      if(GetWorkerId() == wid) { //忽略当前工作节点的统计信息
         epicLog(LOG_DEBUG, "Ignore self information");
         continue;
       }
       Client* cli = FindClientWid(wid);
       if(cli) {
         cli->SetMemStat(mtotal, mfree);
-      } else {
+      } else { //如果目标工作节点未注册，记录警告日志
         epicLog(LOG_WARNING, "worker %d not registered yet", wid);
       }
     }
     return;
   }
-
-  if (op & Work::REPLY) {
+  //确定事务上下文
+  //本地事务
+  if (op & Work::REPLY) {  //如果操作类型是回复消息(REPLY)，从local_txns_中获取对应的事务上下文。
     // this is a local transaction
     tx = local_txns_.at(wr_id);
-  } else {
+  } else { //远程事务
     // this is a remote transaction
-    uint64_t txn_id = ((uint64_t) c->GetWorkerId() << 32 | wr_id);
+    uint64_t txn_id = ((uint64_t) c->GetWorkerId() << 32 | wr_id); //如果操作类型是远程事务，构造事务ID并检查是否为新事务
 
     // this is a new transaction
-    if (this->remote_txns_.count(txn_id) == 0) {
+    if (this->remote_txns_.count(txn_id) == 0) { //如果为新事务，创建事务上下文并初始化处理状态
       this->remote_txns_[txn_id] = 
         std::unique_ptr<TxnContext>(new TxnContext);
       this->nobj_processed[txn_id] = 0;
@@ -576,28 +594,28 @@ void Worker::FarmProcessRemoteRequest(Client* c, const char* msg, uint32_t size)
 
     tx = remote_txns_[txn_id].get();
   }
-
+  //返序列化工作请求
   WorkRequest* wr = tx->wr_;
-  wr->Deser(msg, len);
-  if (len < size) {
+  wr->Deser(msg, len); //将消息内容反序列化为工作请求对象
+  if (len < size) { //如果消息中包含额外数据，更新工作请求的指针和大小
     wr->size = (size - len);
     wr->ptr = (void*)(msg + len);
   }
-
+  //根据操作类型处理请求——根据工作请求的操作类型调用对应的处理函数
   switch(wr->op) {
-    case FARM_MALLOC:
+    case FARM_MALLOC:  //内存分配相关操作：处理内存分配请求和回复
       this->FarmProcessMalloc(c, tx);
       break;
     case FARM_MALLOC_REPLY:
       this->FarmProcessMallocReply(c, tx);
       break;
-    case FARM_READ:
+    case FARM_READ:  //数据读取相关操作：处理数据读取请求和回复
       this->FarmProcessRead(c, tx);
       break;
     case FARM_READ_REPLY:
       this->FarmProcessReadReply(c, tx);
       break;
-    case PREPARE:
+    case PREPARE: //事务相关操作：处理事务的准备、验证、提交、回滚等操作
       this->FarmProcessPrepare(c, tx);
       break;
     case VALIDATE:
@@ -622,7 +640,7 @@ void Worker::FarmProcessRemoteRequest(Client* c, const char* msg, uint32_t size)
     case PUT_REPLY:
       Notify(tx->wr_);
       break;
-    case KV_PUT:
+    case KV_PUT: //键值存储相关操作：处理键值存储的PUT和GET操作
       {
         void* ptr = zmalloc(wr->size);
         memcpy(ptr, wr->ptr, wr->size);
@@ -650,7 +668,7 @@ void Worker::FarmProcessRemoteRequest(Client* c, const char* msg, uint32_t size)
         FarmAddTask(c, tx);
         break;
       }
-    default:
+    default: //未知操作类型：如果操作类型未知，记录警告日志
       epicLog(LOG_WARNING, "Unknown op code %d", tx->wr_->op);
       break;
   }
