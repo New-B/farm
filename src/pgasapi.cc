@@ -20,7 +20,7 @@ static std::unordered_map<std::thread::id, int> thread_to_alloc_map; //线程ID�
 void InitSystem(const Conf* c){
     std::lock_guard<std::mutex> guard(init_lock);
     GAllocFactory::InitSystem(c);
-    sleep(2);
+    sleep(10);
     no_thread = c->no_thread; //获取线程数
     alloc = new GAlloc*[no_thread];
     for (int i = 0; i < no_thread; ++i) {
