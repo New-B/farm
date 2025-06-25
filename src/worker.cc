@@ -261,31 +261,35 @@ int Worker::LocalRequestChecker(struct aeEventLoop *eventLoop, long long id, voi
   if(i) epicLog(LOG_DEBUG, "pop %d from work queue", i);
   return w->conf->timeout;
 }
-
+/* 功能：用于工作节点与主节点同步状态
+   参数：op-操作类型，默认值为UPDATE_MEM_STATS，表示更新内存统计信息；
+   parent-父工作请求指针，默认为nullptr，用于关联当前请求与之前的请求。
+*/
 void Worker::SyncMaster(Work op, WorkRequest* parent) { //默认情况下op的传入参数为UPDATE_MEM_STATS
-  WorkRequest* wr = new WorkRequest();
-  wr->parent = parent;
-  int ret;
+  WorkRequest* wr = new WorkRequest();  //创建一个新的工作请求
+  wr->parent = parent;  //将父工作请求parent赋值给wr的parent成员，用于关联当前请求与之前的请求
+  int ret; //用于存储请求的返回值
 
-  char buf[MAX_REQUEST_SIZE];
-  int len = 0;
-  wr->op = op;
-  if(UPDATE_MEM_STATS == op) {
-    wr->size = conf->size;
-    wr->free = sb.get_avail();
-    ret = FarmSubmitRequest(master, wr);
+  //char buf[MAX_REQUEST_SIZE];
+  //int len = 0; //在函数中未实际使用
+  wr->op = op;  //设置工作请求的操作类型为传入的参数op
+  //根据操作类型处理请求
+  if(UPDATE_MEM_STATS == op) { //当操作类型为UPDATE_MEM_STATS时，工作节点将其内存统计信息(总内存和空闲内存)同步到主节点
+    wr->size = conf->size; //设置工作请求的size为配置中的总内存大小(conf->size)
+    wr->free = sb.get_avail(); //设置工作请求的free为当前可用内存大小(sb.get_avail()) 
+    ret = FarmSubmitRequest(master, wr);//调用FarmSubmitRequest向主节点master提交工作请求wr，返回值存储在ret中 
 
     //TODO: whether needs to do it in a callback func?
-    ghost_size = 0;
-  } else if(FETCH_MEM_STATS == op) {
+    ghost_size = 0; //清除ghost_size，表示当前没有ghost对象
+  } else if(FETCH_MEM_STATS == op) { //当操作类型为FETCH_MEM_STATS时，工作节点从主节点获取其他工作节点的内存统计信息 
     ret = FarmSubmitRequest(master, wr);
   } else {
     epicLog(LOG_WARNING, "unrecognized sync master op");
     exit(-1);
   }
 
-  epicAssert(ret == 1);
-  delete wr;
+  epicAssert(ret == 1); //使用断言检查请求的返回值是否为1，表示请求已成功完成。
+  delete wr;  //释放工作请求对象wr的内存，避免内存泄漏
 }
 
 Client* Worker::GetClient(GAddr addr) {

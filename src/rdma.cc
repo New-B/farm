@@ -185,10 +185,11 @@ char* RdmaResource::GetSlot(int slot) {
   // TODO: check slot == tail
   return (char*) ((uintptr_t)comm_buf[BPOS(slot)]->addr + BOFF(slot));
 }
-/* 主要功能：
+/* PostRecv是RdmaResource类中的一个关键函数，主要功能：
  * 1.发布RDMA接收请求：为RDMA通信准备接收缓冲区；将接收请求提交到共享接收队列(SRQ)
- * 2.管理接收缓冲区：使用slots数据结构管理接收缓冲区的状态(是否被占用)；动态分配接收缓冲区并注册为RDMA内存区域。
- * 3.处理接收请求失败的情况：如果接收请求提交失败，清理相关资源并更新缓冲区状态。
+ * 2.管理接收缓冲区：使用slots数据结构管理接收缓冲区的状态(是否被占用)；如果现有的接收缓冲区不足，动态分配接收缓冲区并注册为RDMA内存区域。
+ * 3.确保通信的连续性：如果接收请求为提前发布，发送方的RDMA请求可能会失败。通过PostRecv，接收方可以提前准备好接收缓冲区，确保通信的连续性和可靠性。
+ * 4.处理接收请求失败的情况：如果接收请求提交失败，清理相关资源并更新缓冲区状态。
  */
 int RdmaResource::PostRecv(int n) { //n为最大待处理消息数
   ibv_recv_wr rr[n];  //定义接收请求数组rr
@@ -778,13 +779,20 @@ unsigned int RdmaContext::SendComp(ibv_wc& wc) {
 unsigned int RdmaContext::WriteComp(ibv_wc& wc) {
   return SendComp(wc);
 }
-
+/* 功能：处理RDMA接收完成事件
+ * 参数：wc：RDMA工作完成项Work Completion，包含接收完成事件的相关信息
+ * 返回值：返回接收到的数据的地址
+ * 
+ * */
 char* RdmaContext::RecvComp(ibv_wc& wc) {
   //FIXME: thread-safe
   //what if others grab this slot before the current thread finish its job
-  char* ret = resource->GetSlot(wc.wr_id);
-  resource->ClearSlot(wc.wr_id);
-  return ret;
+  //获取接收缓冲区槽
+  char* ret = resource->GetSlot(wc.wr_id); //调用RdmaResource::GetSlot获取接收缓冲区槽的地址。参数wc.wr_id：工作请求ID，用于标识接收完成的缓冲区槽
+  //返回值ret：接收缓冲区槽的地址。关键点：GetSlot函数通过wr_id定位接收缓冲区槽，并返回该槽的地址。该槽存储了接收到的数据
+  resource->ClearSlot(wc.wr_id); //调用ClearSlot清理接收缓冲区槽的状态。参数wc.wr_id：工作请求ID，用于标识需要清理的缓冲区槽
+  //关键点：ClearSlot函数将接收缓冲区槽的状态更新为未占用。这确保缓冲区槽可以被重新使用。
+  return ret; //返回接收缓冲区槽的地址/返回接收到的数据的地址
 }
 
 RdmaContext::~RdmaContext() {

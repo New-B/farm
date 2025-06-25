@@ -11,7 +11,32 @@
 #include "server.h"
 #include "zmalloc.h"
 
+/* 将resource用在Client对象的初始化中，主要考虑：
+共享RDMA资源：
+  RDMA通信需要在客户端和服务器之间建立连接；客户端需要访问服务器的RDMA资源(如上线、队列对等)来完成RDMA操作。
+  因此，resource被传递给Client，以便客户端能够共享服务器的RDMA资源。
+创建RDMA上下文：
+  Client对象需要一个RDMA上下文(ctx)来进行RDMA操作，客户端通过resource调用NewRdmaContext方法创建一个新的RDMA上下文。
+  RDMA上下文是RDMA通信的核心，它封装了RDMA连接的状态和配置。每个客户端需要一个独立的RDMA上下文来管理与远程服务器的RDMA通信。
+统一管理RDMA资源：
+  通过将resource传递给Client，可以确保RDMA资源的管理是统一的。例如，RDMA上下文的创建和销毁都由resource负责，
+  避免了资源泄漏或重复分配的问题。
 
+**ctx是Client类的私有变量，类型为RdmaContext*，表示客户端的RDMA上下文，设计意图是：
+每个客户端需要独立的RDMA上下文：
+  RDMA通信是基于队列对(QP)的，每个队列对对应一个RDMA上下文。每个客户端需要一个独立的RDMA上下文来管理与远程服务器的通信状态。
+  通过ctx，客户端可以：设置远程连接参数；获取本地连接参数；执行RDMA操作(读、写、发送、接收)
+动态创建和销毁RDMA上下文：
+  在Client的构造函数中，ctx是通过res->NewRdmaContext动态创建的。在client的析构函数中，ctx会被销毁(resource->DeleteRdmaContext(ctx))。
+  这种设计确保了RDMA上下文的生命周期与Client对象的生命周期一致，避免了资源浪费。
+支持多种通信场景：
+  RDMA通信可能发生在以下场景：工作节点和主节点之间；工作节点之间。ctx的初始化通过isForMaster参数区分不同的通信场景：
+  - 如果isForMaster为true，表示当前客户端是连接到主节点的工作节点。
+  - 如果isForMaster为false，表示当前客户端是连接到其他工作节点的工作节点。
+提供连接参数管理：
+  ctx提供了管理连接参数的方法，例如：SetRemoteConnParam用于设置远程连接参数；GetRdmaConnString用于获取本地连接字符串。
+
+*/
 Client::Client(RdmaResource* res, bool isForMaster, const char* rdmaConnStr): lastMsgTime(0), resource(res) {
   wid = free = size = 0;
   this->ctx = res->NewRdmaContext(isForMaster);

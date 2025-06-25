@@ -57,7 +57,9 @@ Master::Master(const Conf& conf): st(nullptr), workers(), unsynced_workers() {  
   sockfd是要注册事件的套接字描述符；
   AE_READABLE表示要注册的时间是可读事件，即当有新的客户端连接时触发事件；
   AcceptTcpClientHandle是事件处理函数，当事件触发时调用该函数处理新的客户端连接；
-  this是传递给事件处理函数的用户数据，通常是当前对象的指针。
+  * this是传递给事件处理函数的用户数据，通常是当前对象的指针。在事件注册时，this指针(当前对象的指针)被作为用户数据传递给
+    aeCreateFileEvent，this指针指向当前的Master对象。当事件触发时，事件循环会调用AcceptTcpClientHandle函数，并将
+    注册时的用户数据(即this指针)作为参数传递给void *data。
   如果aeCreateFileEvent返回AE_ERR，表示注册文件事件失败。*/
   if (sockfd > 0 && aeCreateFileEvent(el, sockfd,
         AE_READABLE, AcceptTcpClientHandle, this) == AE_ERR) {

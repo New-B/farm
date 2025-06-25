@@ -21,6 +21,8 @@
  * 5.如果当前服务器时主节点(Master)，执行额外的操作
  * 调用时机：函数被注册到事件循环中的回调函数，用于处理新的TCP客户端连接，当监听套接字上有新的客户端连接时，事件循环会调用函数处理该连接。
  * 典型调用场景：客户端尝试连接主节点或工作节点；主节点或工作节点需要与客户端交换连接参数。
+ * 在函数中，data被转换为具体的类型Server*，表示当前的服务器对象，以便访问其成员和方法。server是接收TCP连接请求的服务器对象。它可以是
+ * 主节点或工作节点，具体取决于当前服务器的角色
  */
 void AcceptTcpClientHandle (aeEventLoop *el, int fd, void *data, int mask) {
 	epicAssert(data != nullptr); //确保data不为空
