@@ -16,8 +16,8 @@
 class Farm {
     private:
         std::unique_ptr<WorkerHandle> wh_; //WorkerHandle的智能指针，用于管理Worker的句柄
-        std::unique_ptr<TxnContext> rtx_; //TxnContext的智能指针，用于管理事务上下文
-        TxnContext* tx_; //TxnContext的原始指针，用于当前事务
+        std::unique_ptr<TxnContext> rtx_; //TxnContext的智能指针，用于管理事务上下文，指向事务上下文对象
+        TxnContext* tx_; //TxnContext的普通指针，用于指向当前事务上下文
         Worker* w_; //Worker的原始指针，用于当前Worker
 
     public:

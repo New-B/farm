@@ -222,7 +222,7 @@ void Worker::RegisterMemory(void* addr, Size s) {
   resource->RegLocalMemory(addr, s);
 }
 
-int Worker::RegisterHandle(int fd, aeFileProc* handle) {
+int Worker::RegisterHandle(int fd, aeFileProc* handle) {//将发送管道的读端注册在事件循环中，用于将工作请求发送到工作线程进行处理 
   //register local request event
   if (fd > 0 && aeCreateFileEvent(el, fd, AE_READABLE, ProcessLocalRequest, this) == AE_ERR) {
     epicPanic("Unrecoverable error creating pipe file event.");

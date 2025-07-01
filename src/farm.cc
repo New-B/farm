@@ -18,13 +18,14 @@ using std::unordered_map;
 Farm::Farm(Worker* w): w_(w), tx_(nullptr), wh_(new WorkerHandle(w)), rtx_(new TxnContext()) {}
 //构造函数，初始化Worker指针w_，事务指针tx_，WorkerHandle智能指针wh_和TxnContext智能指针rtx_
 int Farm::txBegin() {
-  if (unlikely(tx_ != nullptr)) {
+  if (unlikely(tx_ != nullptr)) { //检查当前事务指针tx_是否为空，如果不为空，表示已经有事务在运行。则无法开始新事务
     epicLog(LOG_INFO, "There is already a transaction running; You may want to call txCommit before start a new one!!!");
-    return -1;
+    return -1; //防止在已有事务的情况下再次开始新事务，确保事务的正确性和一致性。返回-1表示错误
   }
   //智能指针会在对象销毁时自动释放对象的内存，而普通指针不会管理对象的生命周期，需要手动释放内存。
+  //将事务上下文对象与当前事务关联。使用智能指针管理事务上下文的生命周期，避免内存泄漏。
   tx_ = rtx_.get();//rtx_是一个智能指针，而tx_是一个原始指针，为了让tx_指向TxnContext对象，需要调用rtx_.get()获取TxnContext对象的原始指针
-  tx_->reset();
+  tx_->reset(); //reset()方法通常会清空事务的读写集合、锁状态等信息，为新事务做准备。确保事务上下文处于干净状态，避免收到之前事务的影响。
   return 0;
 }
 //开始一个事务，如果已经有事务在运行，则记录日志并返回-1，否则重置事务上下文并返回0
@@ -220,17 +221,17 @@ int Farm::txCommit() {
   }
 
   if (txnIsLocal()){//检查事务是否是本地事务
-    tx_->wr_->op = Work::FARM_READ; // a trick to indicate this is an app commit 设置操作类型为Worker::FARM_READ
-    this->w_->FarmProcessLocalCommit(tx_->wr_);//调用FarmProcessLocalCommit方法处理本地提交
+    tx_->wr_->op = Work::FARM_READ; // a trick to indicate this is an app commit 设置操作类型为Worker::FARM_READ，这是一个技巧，用于标记当前事务是由应用程序线程发起的本地提交，在后续的FarmProcessLocalCommit函数中，系统会根据操作类型为FARM_READ的请求执行本地事务提交逻辑
+    this->w_->FarmProcessLocalCommit(tx_->wr_);//调用FarmProcessLocalCommit方法处理本地提交，该函数会检查事务的写集合、锁状态等，并决定提交或回滚事务
     bool ret = (tx_->wr_->status == Status::SUCCESS) ? 0 : -1;  //根据提交结果设置返回值
-    tx_ = nullptr;//将事务指针tx_设置为空
+    tx_ = nullptr;//清理事务上下文，将事务指针tx_设置为空，标识当前没有活跃的事务。
     return ret;
   }
 
   //tx_->updateVesion();
-  tx_->wr_->op = COMMIT;//如果事务不是本地事务，则设置操作类型为COMMIT
-  int ret = wh_->SendRequest(tx_->wr_); //调用SendRequest方法发送提交请求
-  tx_ = nullptr;  //将事务指针tx_设置为空
+  tx_->wr_->op = COMMIT;//如果事务不是本地事务，则设置操作类型为COMMIT，标记当前事务为分布式事务提交
+  int ret = wh_->SendRequest(tx_->wr_); //调用SendRequest方法发送提交请求，将提交请求发送到协调器或其他节点。该请求会触发分布式事务的两阶段提交协议。
+  tx_ = nullptr;  //清理事务上下文，将事务指针tx_设置为空
   return ret != 0 ? -1 : ret; //根据提交结果设置返回值
 }
 //提交事务，如果事务未开始则记录致命错误日志并返回-1，否则提交事务并返回结果

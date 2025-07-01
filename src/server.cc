@@ -133,21 +133,32 @@ Client* Server::FindClient(uint32_t qpn) {
   }
   return cli;
 }
-
+/* 功能：更新widClienMap(工作节点ID到客户端对象的映射)
+ * qpClienMap是队列对编号QP到客户端对象的映射
+ * widCliMap是工作节点ID到客户端对象的映射
+ * 该函数的目的是确保widCliMap包含所有已知的工作节点ID和对应的客户端对象 
+*/
 void Server::UpdateWidMap() {
+  //确定需要更新的工作几点数
+  /*如果当前服务器是主节点，则工作节点的数量等于qpCliMap.size()。
+    如果当前服务器是工作节点，则需要忽略与主节点的连接，因此工作节点的数量是qpCliMap.size()-1*/
   int workers = IsMaster() ? qpCliMap.size() : qpCliMap.size()-1;
+  //检查是否需要更新widCliMap，如果widCliMap中映射数量小于实际的工作节点数量，则需要更新
+  //避免重复更新，只有在widCliMap不完整时才进行更新操作
   if(widCliMap.size() < workers) {
+    //遍历qpCliMap中所有的队列对编号QP和对应的客户端对象
+    //从qpCliMap中提取客户端对象，并根据其工作节点ID更新widCliMap
     for(auto it = qpCliMap.begin(); it != qpCliMap.end(); it++) {
-      int wid = it->second->GetWorkerId();
-      if(wid == GetWorkerId()) {
-        epicAssert(!IsMaster());
+      int wid = it->second->GetWorkerId();//获取客户端对应的工作节点ID，确定当前客户端对象所属的工作节点
+      if(wid == GetWorkerId()) { //如果客户端的工作节点ID等于当前服务器的工作节点ID，则忽略该客户端，因为当前服务器不需要处理自己的连接
+        epicAssert(!IsMaster()); //避免将与主节点自身的连接加入到widCliMap中 
         continue; //ignore the client to the master
       }
-      if(!widCliMap.count(wid)) {
+      if(!widCliMap.count(wid)) { //如果widCliMap中尚未包涵该工作节点ID的映射，则将该客户端对象添加到widCliMap中
         widCliMap[wid] = it->second;
       }
     }
-    epicAssert(widCliMap.size() == workers);
+    epicAssert(widCliMap.size() == workers); //使用断言检查更新后的widCliMap的大小是否与实际工作节点数量一致 
   }
 }
 

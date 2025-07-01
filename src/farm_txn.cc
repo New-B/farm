@@ -243,5 +243,5 @@ void TxnContext::reset() {
   this->write_set_.clear();
   this->read_set_.clear();
   this->buffer_.clear();
-  this->wr_->tx = this;
+  this->wr_->tx = this; //wr_是一个指向工作请求对象的指针，tx是工作请求对象中的事务指针。将当前事务上下文与工作请求对象关联起来，确保工作请求能够正确访问当前事务的上下文。
 }
