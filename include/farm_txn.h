@@ -239,7 +239,6 @@ class TxnContext{
         void getWidForWobj(std::vector<uint16_t>& wid);//获取写对象的工作节点ID
 
         inline int getNumWobjForWid(uint16_t w) { //获取指定工作节点ID的写对象数量
-            //return write_set_.count(w) > 0 ? write_set_.at(w).size() : 0;
             return write_set_.count(w) > 0 ? write_set_.at(w).size() : 0;
         }
 
