@@ -33,9 +33,11 @@ typedef uint64_t ptr_t ;	//定义ptr_t为uint64_t类型
 //本地地址：是指在当前节点上的实际内存地址，
 typedef uint64_t Key;	//定义Key为uint64_t类型
 typedef uint64_t GAddr;	//定义GAddr为uint64_t类型
+#define WID_MASK 0xFFFF000000000000L	//定义WID_MASK为0xFFFF000000000000L	位移掩码，16个1，L后缀表示该常量是long类型。使用L后缀可以确保常量的类型和大小符合预期，特别是在未操作和掩码操作中
 #define OFF_MASK 0xFFFFFFFFFFFFL	//定义OFF_MASK为0xFFFFFFFFFFFFL	位移掩码，48个1，L后缀表示该常量是long类型。使用L后缀可以确保常量的类型和大小符合预期，特别是在未操作和掩码操作中
 #define WID(gaddr) ((gaddr) >> 48)	//获取全局地址的工作节点ID
 #define OFF(gaddr) ((gaddr) & OFF_MASK)	//获取全局地址的偏移量
+#define ADDR(nid) ((GAddr)(nid) << 48)	//将工作节点ID转换为全局地址的基地址 
 #define TO_GLOB(addr, base, wid) ((ptr_t)(addr) - (ptr_t)(base) + ((ptr_t)(wid) << 48))	//将本地地址转换为全局地址
 #define EMPTY_GLOB(wid) ((ptr_t)(wid) << 48)	//创建空全局地址
 

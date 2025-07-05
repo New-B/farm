@@ -15,7 +15,7 @@ GAddr GAlloc::Malloc(const Size size, Flag flag){ //定义GAlloc类的Malloc成�
 	GAddr addr = 0; //初始化地址为0
     while (1){ //无限循环
         this->txBegin(); //开始事务
-	    addr = this->txAlloc(size); //分配内存
+	    addr = this->txAlloc(size, ADDR(flag)); //分配内存
  	    int ret = this->txCommit(); //提交事务
         if (ret == 0) break; //如果提交成功，跳出循环
     }

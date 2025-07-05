@@ -291,33 +291,37 @@ void Worker::SyncMaster(Work op, WorkRequest* parent) { //默认情况下op的�
   epicAssert(ret == 1); //使用断言检查请求的返回值是否为1，表示请求已成功完成。
   delete wr;  //释放工作请求对象wr的内存，避免内存泄漏
 }
-
+/*根据全局地址addr获取对应的远程客户端对象Client
+ * 如果addr为nullptr，则选择一个具有最多空闲内存的远程工作节点进行分配。
+ * 如果addr不为nullptr，则根据地址中的工作节点ID获取对应的客户端对象。
+ * 返回找到的客户端对象，如果没有找到则返回nullptr。
+ */
 Client* Worker::GetClient(GAddr addr) {
-  Client* cli = nullptr;
+  Client* cli = nullptr; //初始化变量，客户端指针和工作节点ID 
   int wid = 0;
-  UpdateWidMap();
-  if(widCliMap.size() == 0) {
+  UpdateWidMap();  //更新工作节点ID和客户端映射表widCliMap，确保包含最新的远程节点信息
+  if(widCliMap.size() == 0) { //如果widCliMap为空，表示没有远程工作节点 
     epicLog(LOG_WARNING, "#remote workers is 0!");
   } else {
-    if(addr) {
-      epicAssert(!IsLocal(addr));
-      wid = WID(addr);
-    } else {
+    if(addr) { //如果addr不为nullptr，表明调用者指定了目标地址
+      epicAssert(!IsLocal(addr)); //确保地址不是本地地址 
+      wid = WID(addr); //获取对应的工作节点ID，并赋值给wid
+    } else { //如果addr为nullptr，表示调用者没有指定目标地址 
       //epicLog(LOG_DEBUG, "select a random server to allocate");
       //while ((wid = rand() % widCliMap.size() + 1) == GetWorkerId());
       epicLog(LOG_DEBUG, "select the server with most free memory to allocate");
       Size max = 0;
-      for(auto& entry: widCliMap) {
+      for(auto& entry: widCliMap) { //遍历widCliMap，选择内存可用量最大的远程节点
         epicLog(LOG_DEBUG, "worker %d, have %ld free out of %ld",
-            entry.second->GetWorkerId(), entry.second->GetFreeMem(), entry.second->GetTotalMem());
+            entry.second->GetWorkerId(), entry.second->GetFreeMem(), entry.second->GetTotalMem()); //记录每个远程节点的内存状态(可用内存和总内存)
         if(max < entry.second->GetFreeMem()) {
           max = entry.second->GetFreeMem();
-          wid = entry.first;
+          wid = entry.first; //更新wid为当前内存可用量最大的远程节点的工作节点ID 
         }
       }
     }
-    cli = FindClientWid(wid);
-    if(!cli) {
+    cli = FindClientWid(wid); //根据工作节点ID wid 查找对应的客户端对象，如果找到，返回指向客户端对象的指针
+    if(!cli) { //如果未找到客户端对象，记录警告日志并返回nullptr 
       epicLog(LOG_WARNING, "cannot find the client for addr (%d:%lx)", wid, OFF(addr));
     }
   }
@@ -678,6 +682,85 @@ void Worker::FarmProcessRemoteRequest(Client* c, const char* msg, uint32_t size)
   }
 }
 
+/* select the target node on which to finish the memory allocation.
+ * either the local or thr remote node will be selected.
+ */
+int Worker::SelectTargetNode(GAddr addr){
+  int wid = 0;
+  UpdateWidMap();  //更新工作节点ID和客户端映射表widCliMap，确保包含最新的远程节点信息
+  if(widCliMap.size() == 0) { //如果widCliMap为空，表示没有远程工作节点 
+    epicLog(LOG_WARNING, "#remote workers is 0!");
+    return wid;
+  } else if (addr) {
+    //如果addr不为nullptr，表明调用者指定了目标地址
+    // epicAssert(!IsLocal(addr)); //确保地址不是本地地址 
+    wid = WID(addr); //获取对应的工作节点ID，并赋值给wid
+    if(wid < 0 || wid > widCliMap.size()) { //检查工作节点ID是否在有效范围内
+      epicLog(LOG_WARNING, "invalid wid %d for addr %lx", wid, OFF(addr));
+      wid = 0; //如果工作节点ID无效，则在本地进行分配
+    } else if(wid == GetWorkerId()) { //如果工作节点ID等于当前工作节点的ID，表示请求是本地分配
+      epicLog(LOG_DEBUG, "select local worker %d to allocate", wid);
+      wid = 0 ; //返回当前工作节点ID
+    }
+  // } else if (ghost_size <= conf->ghost_th) {
+  //   return wid;; //如果ghost_size小于等于配置中的阈值conf->ghost_th，表示可以在本地剩余内存充足
+  } else { //如果addr为nullptr，表示调用者没有指定目标地址 
+    //epicLog(LOG_DEBUG, "select a random server to allocate");
+    //while ((wid = rand() % widCliMap.size() + 1) == GetWorkerId());
+    epicLog(LOG_DEBUG, "select the server with most free memory to allocate");
+    Size max = 0;
+    for(auto& entry: widCliMap) { //遍历widCliMap，选择内存可用量最大的远程节点
+      epicLog(LOG_DEBUG, "worker %d, have %ld free out of %ld",
+          entry.second->GetWorkerId(), entry.second->GetFreeMem(), entry.second->GetTotalMem()); //记录每个远程节点的内存状态(可用内存和总内存)
+      if(max < entry.second->GetFreeMem()) {
+        max = entry.second->GetFreeMem();
+        wid = entry.first; //更新wid为当前内存可用量最大的远程节点的工作节点ID 
+      }
+    }
+  }
+  }
+  return wid; //返回选择的工作节点ID
+}
+  // int target_node = -1; //初始化目标节点为-1，表示未指定目标节点
+  // 1. 如果明确指定了目标节点
+  // if (addr) {
+  //   int target_node = WID(addr);
+  //   epicAssert(target_node >= 0 && target_node <= conf->nr_workers);
+  //   if (target_node != GetWorkerId()) {
+  //       return target_node;
+  //   }
+  // }
+  // // 2. 优先本地分配
+  // if (ghost_size <= conf->ghost_th) {
+  //     return GetWorkerId(); // 当前节点
+  // }
+  // // 3. 远程分配策略
+  // Size max_free_mem = 0;
+  // int min_load = INT_MAX;
+  // for (auto& entry : widCliMap) {
+  //   int node_id = entry.first;
+  //   Client* client = entry.second;
+  //   // 获取内存可用量和负载
+  //   Size free_mem = client->GetFreeMem();
+  //   int load = client_tasks_[client].size();
+  //   // 优先选择内存可用量最大的节点
+  //   if (free_mem > max_free_mem) {
+  //       max_free_mem = free_mem;
+  //       min_load = load;
+  //       target_node = node_id;
+  //   } else if (free_mem == max_free_mem && load < min_load) {
+  //       // 如果内存可用量相同，选择负载最小的节点
+  //       min_load = load;
+  //       target_node = node_id;
+  //   }
+  // }
+  // // 如果没有找到合适的节点，随机选择一个
+  // if (target_node == -1 && !widCliMap.empty()) {
+  //     target_node = rand() % widCliMap.size();
+  // }
+
+  // return target_node;
+
 /**函数用于处理本地应用线程发出的内存分配请求
  * @brief process malloc request issued by local application threads
  *
@@ -687,32 +770,38 @@ void Worker::FarmProcessLocalMalloc(WorkRequest *wr) {
   epicAssert(wr->op == FARM_MALLOC); //断言操作类型，确保工作请求的操作类型为FARM_MALLOC
   TxnContext* tx = local_txns_[wr->id]; //从local_txns_数组中获取与请求ID对应的事务上下文tx
 
+  // int wid = SelectTargetNode(wr->addr); //调用SelectTargetNode函数选择目标工作节点ID
+  // if (wid == 0) { //如果选择的工作节点ID为0，表示在本地进行分配 
   bool remote = true; //初始化Remote标志为true，表示默认情况下请求时远程分配
   if (!wr->addr || IsLocal(wr->addr)) { //如果请求的地址为空或是本地地址，则进行本地内存分配
-    /* local malloc */
-    void *addr;
-    if (wr->flag & ALIGNED) 
-      addr = FarmMalloc(wr->size, true); //调用FarmMalloc函数分配内存
-    else
-      addr = FarmMalloc(wr->size);
+    if (ghost_size <= conf->ghost_th) {
+      /* local malloc */
+      void *addr;
+      if (wr->flag & ALIGNED) 
+        addr = FarmMalloc(wr->size, true); //调用FarmMalloc函数分配内存
+      else
+        addr = FarmMalloc(wr->size);
 
-    if (likely(addr)) {
-      memset(addr, 0, wr->size); //ensure it is not locked  使用memset将分配的内存初始化为0
-      wr->addr = TO_GLOB(addr, base, GetWorkerId()); //将分配的地址转换为全局地址并赋值给wr->addr
-      remote = false; //设置remote标志为false，表示请求时本地分配
-      wr->status = SUCCESS;  //设置请求状态为SUCCESS
-      this->ghost_size += wr->size; //更新ghost_size
-      wr->op = FARM_MALLOC_REPLY; //设置工作请求的操作类型为FARM_MALLOC_REPLY
-      /*ghost_size表示当前工作节点(Worker)中已分配但未与主节点同步的内存大小，conf->ghost_th表示一个阈值，从配置中读取，用于限制ghost_size的最大值*/
-      if (ghost_size > conf->ghost_th) SyncMaster(); //检查是否需要同步主节点
+      if (likely(addr)) {
+        memset(addr, 0, wr->size); //ensure it is not locked  使用memset将分配的内存初始化为0
+        wr->addr = TO_GLOB(addr, base, GetWorkerId()); //将分配的地址转换为全局地址并赋值给wr->addr
+        remote = false; //设置remote标志为false，表示请求时本地分配
+        wr->status = SUCCESS;  //设置请求状态为SUCCESS
+        this->ghost_size += wr->size; //更新ghost_size
+        wr->op = FARM_MALLOC_REPLY; //设置工作请求的操作类型为FARM_MALLOC_REPLY
+        /*ghost_size表示当前工作节点(Worker)中已分配但未与主节点同步的内存大小，conf->ghost_th表示一个阈值，从配置中读取，用于限制ghost_size的最大值*/
+        if (ghost_size > conf->ghost_th) SyncMaster(); //检查是否需要同步主节点
+      }
     } else {
       wr->addr = Gnullptr; //如果内存分配失败，将请求地址设置为Gnullptr
     }
   }
 
   if (remote) { //如果请求是远程分配
+  // if (wid > 0) { //如果选择的工作节点ID大于0，表示请求是远程分配
     /* remote allocation */
     Client *cli = GetClient(wr->addr); //获取相应客户端并将任务添加到客户端的任务队列中
+    // Client *cli = FindClientWid(wid); //根据工作节点ID wid 查找对应的客户端对象
     if (likely(cli)) {
       FarmAddTask(cli, tx);
       return;
@@ -1199,6 +1288,7 @@ void Worker::FarmValidate(TxnContext* tx, TxnCommitStatus* ts) {
   uint16_t wid = GetWorkerId(); //获取当前工作节点ID
 
   tx->getWidForRobj(wids); //获取事务涉及的所有工作节点
+
   for (auto& p: wids) {
     ts->progress_[p] = 0;//初始化每个工作节点的验证进度为0
   }

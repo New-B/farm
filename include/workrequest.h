@@ -14,12 +14,12 @@ enum Work { //定义工作类型，定义了各种工作请求类型，包括内
   GET,
   KV_PUT,
   KV_GET,
-  FARM_MALLOC,
-  FARM_READ,
-  PREPARE,
-  VALIDATE,
-  COMMIT,
-  ABORT,
+  FARM_MALLOC,  //8
+  FARM_READ,  //9
+  PREPARE,  //10
+  VALIDATE, //11
+  COMMIT, //12
+  ABORT, //13 
   //set the value of REPLY so that we can test op & REPLY
   //to check whether it is a reply workrequest or not
   REPLY = 1 << 16,  //REPLY及其后续值用于标识恢复类型的工作请求。
@@ -54,6 +54,7 @@ using stype = std::underlying_type<Status>::type;
 const char* workToStr(Work);//函数声明，用于将Work枚举转换为字符串
 
 using Flag = int; //定义Flag为int类型
+using Node = int; //定义Node为int类型
 
 #define REMOTE 1  //定义了一些标志，用于标识工作请求的属性
 #define SPREAD 1 << 1

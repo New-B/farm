@@ -78,13 +78,33 @@ void parse_conf(int argc, char* argv[]) {
 }
 
 void* thread_func(void* arg) {
-    GAddr addr = dsmMalloc(ALLOC_SIZE);
-    char data[ALLOC_SIZE] = "Hello, DSM!";
+    int thread_id = *(int*)arg; // 获取线程 ID
+    int node_id = thread_id % no_node + 1; // 根据线程 ID 选择目标节点（0, 1, 2）
+    
+    // 在目标节点上分配内存
+    GAddr addr = dsmMalloc(ALLOC_SIZE, node_id);
+    if (addr == Gnullptr) {
+        cerr << "Error: Failed to allocate memory on node " << node_id << endl;
+        return nullptr;
+    }
+
+    // 写入数据
+    char data[ALLOC_SIZE];
+    snprintf(data, ALLOC_SIZE, "Hello from thread %d on node %d!", thread_id, node_id);
     dsmWrite(addr, data, ALLOC_SIZE);
 
+    // 读取数据
     char buffer[ALLOC_SIZE];
     dsmRead(addr, buffer, ALLOC_SIZE);
-    printf("Read data: %s\n", buffer);
+    printf("Thread %d read data from node %d: %s\n", thread_id, node_id, buffer);
+
+
+    // char data[ALLOC_SIZE] = "Hello, DSM!";
+    // dsmWrite(addr, data, ALLOC_SIZE);
+
+    // char buffer[ALLOC_SIZE];
+    // dsmRead(addr, buffer, ALLOC_SIZE);
+    // printf("Read data: %s\n", buffer);
 
     dsmFree(addr);
     return nullptr;
@@ -102,30 +122,36 @@ int main(int argc, char* argv[]) {
     cout << "Number of Threads: " << no_thread << endl;
     cout << "Object Size: " << obj_size << endl;
     cout << "Number of Nodes: " << no_node << endl;
-
+     // 判断是否为主节点
+     if (is_master) {
+        // 运行测试程序逻辑
+        cout << "Running test program on master node..." << endl;
     // 创建线程数组
-    pthread_t threads[no_thread];
+        pthread_t threads[no_thread];
 
-    // 启动线程
-    for (int i = 0; i < no_thread; ++i) {
-        if (pthread_create(&threads[i], nullptr, thread_func, nullptr) != 0) {
-            cerr << "Error: Failed to create thread " << i << endl;
-            exit(EXIT_FAILURE);
+        // 启动线程
+        for (int i = 0; i < no_thread; ++i) {
+            if (pthread_create(&threads[i], nullptr, thread_func, nullptr) != 0) {
+                cerr << "Error: Failed to create thread " << i << endl;
+                exit(EXIT_FAILURE);
+            }
         }
-    }
 
-    // 等待所有线程完成
-    for (int i = 0; i < no_thread; ++i) {
-        if (pthread_join(threads[i], nullptr) != 0) {
-            cerr << "Error: Failed to join thread " << i << endl;
-            exit(EXIT_FAILURE);
+        // 等待所有线程完成
+        for (int i = 0; i < no_thread; ++i) {
+            if (pthread_join(threads[i], nullptr) != 0) {
+                cerr << "Error: Failed to join thread " << i << endl;
+                exit(EXIT_FAILURE);
+            }
         }
-    }
 
+        cout << "All threads completed successfully!" << endl;
+    } else {
+        // 工作节点仅提供 DSM 功能
+        cout << "This is a worker node. No test program will run here." << endl;
+    }
     // 释放资源
     dsm_finalize();
-
-    cout << "All threads completed successfully!" << endl;
 
     return 0;
 }

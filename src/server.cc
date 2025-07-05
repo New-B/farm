@@ -139,7 +139,7 @@ Client* Server::FindClient(uint32_t qpn) {
  * 该函数的目的是确保widCliMap包含所有已知的工作节点ID和对应的客户端对象 
 */
 void Server::UpdateWidMap() {
-  //确定需要更新的工作几点数
+  //确定需要更新的工作节点数
   /*如果当前服务器是主节点，则工作节点的数量等于qpCliMap.size()。
     如果当前服务器是工作节点，则需要忽略与主节点的连接，因此工作节点的数量是qpCliMap.size()-1*/
   int workers = IsMaster() ? qpCliMap.size() : qpCliMap.size()-1;

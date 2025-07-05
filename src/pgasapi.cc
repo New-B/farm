@@ -48,10 +48,10 @@ static int GetAllocIndexForThread() {
     }
 }
 
-GAddr dsmMalloc(Size size) {
+GAddr dsmMalloc(Size size, Node nid = 0) {
     int index = GetAllocIndexForThread(); // 获取当前线程对应的分配器索引 
     //thread_local GAlloc* allocator = GAllocFactory::CreateAllocator();
-    return alloc[index]->Malloc(size);
+    return alloc[index]->Malloc(size, nid);
 }
 
 int dsmRead(GAddr addr, void* buf, Size count) {

@@ -12,7 +12,7 @@ extern "C" {
 void InitSystem(const Conf* c = nullptr);
 
 // 分配内存
-GAddr dsmMalloc(Size size);
+GAddr dsmMalloc(Size size, Node nid = 0);
 
 // 读取数据
 int dsmRead(GAddr addr, void* buf, Size count);
