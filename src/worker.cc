@@ -718,7 +718,6 @@ int Worker::SelectTargetNode(GAddr addr){
       }
     }
   }
-  }
   return wid; //返回选择的工作节点ID
 }
   // int target_node = -1; //初始化目标节点为-1，表示未指定目标节点

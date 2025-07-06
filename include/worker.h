@@ -122,6 +122,7 @@ class Worker: public Server { //Worker类继承自Server类，表示工作节点
   void FarmFinalizeTxn(TxnContext*, TxnCommitStatus*);//完成事务上下文和提交状态
   void FarmFinalizeTxn(Client*, TxnContext*); //为客户端完成事务上下文
 //处理远程请求
+  int  SelectTargetNode(GAddr addr); //选择目标节点的ID
   void FarmProcessRemoteRequest(Client*, const char* msg, uint32_t len);
   void FarmProcessPrepare(Client*, TxnContext*);//处理准备事务请求
   void FarmProcessValidate(Client*, TxnContext*);  //处理验证事务请求
