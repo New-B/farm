@@ -602,7 +602,7 @@ void Worker::FarmProcessRemoteRequest(Client* c, const char* msg, uint32_t size)
 
     tx = remote_txns_[txn_id].get();
   }
-  //返序列化工作请求
+  //反序列化工作请求
   WorkRequest* wr = tx->wr_;
   wr->Deser(msg, len); //将消息内容反序列化为工作请求对象
   if (len < size) { //如果消息中包含额外数据，更新工作请求的指针和大小
@@ -1682,18 +1682,33 @@ void Worker::FarmProcessPendingReads(TxnContext* tx) {
 
 void Worker::FarmFree(GAddr addr) {
   char* local = (char*)ToLocal(addr);
-  uint8_t offset = 0;
-  local -= sizeof(uint8_t) + sizeof(osize_t);
-  readInteger(local, offset);
-  sb.sb_free(local - offset);
+  int vbits = sizeof(version_t); //表示version_t类型的大小
+  if ((uintptr_t)local % vbits == 0) { //检查内存地址是否对齐
+    epicLog(LOG_DEBUG, "FarmFree: addr = %lx, local = %p", addr, local);
+    sb.sb_free(local);
+    return;
+  } else {
+    uint8_t offset = 0;
+    local -= sizeof(uint8_t) + sizeof(osize_t);
+    readInteger(local, offset);
+    epicLog(LOG_DEBUG, "addr = %lx, local = %p, not aligned, FarmFree: %p", addr, local, local - offset);
+    sb.sb_free(local - offset); //如果内存地址未对齐，释放实际内存地址
+    return;
+  }
+
+  // char* local = (char*)ToLocal(addr);
+  // uint8_t offset = 0;
+  // local -= sizeof(uint8_t) + sizeof(osize_t);
+  // readInteger(local, offset);
+  // sb.sb_free(local - offset);
 }
 
 //函数用于分配内存，并确保分配的内存地址对齐
 void* Worker::FarmMalloc(osize_t size, osize_t align) { //size：要分配的内存大小； align：对齐要求，如果为0则不进行对齐
   char* addr; //指向分配的内存地址
-  int sbits = sizeof(osize_t); //表示osize_t类型的大小
-  int vbits = sizeof(version_t); //表示version_t类型的大小
-  int obits = sizeof(uint8_t);  //表示uint8_t类型的大小
+  int sbits = sizeof(osize_t); //表示osize_t类型的大小，用于存储分配的内存块大小 uint32_t 4
+  int vbits = sizeof(version_t); //表示version_t类型的大小，用于存储版本号和锁状态 uint64_t 8
+  int obits = sizeof(uint8_t);  //表示uint8_t类型的大小，用于存储对齐偏移量
   uint8_t offset;  //用于存储内存对齐的偏移量
   osize_t rsize = size + sbits + vbits;  //实际分配的内存大小，包括size、sbits、vbits
 
@@ -1714,7 +1729,7 @@ void* Worker::FarmMalloc(osize_t size, osize_t align) { //size：要分配的内
     epicAssert((uintptr_t)addr % vbits == 0); //确保内存地址addr对齐到vbits
     //__atomic_store_n((version_t*)addr, 0, __ATOMIC_RELAXED);
   }
-
+  //| 偏移量 (uint8_t) | 分配大小 (osize_t) | 用户数据 (size) | 版本号和锁状态 (version_t) |
   return addr; //返回分配的内存地址
 }
 

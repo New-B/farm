@@ -59,7 +59,7 @@ void Server::ProcessRdmaRequest() {
    * to get notified in the event-loop,
    * we need ibv_req_notify_cq -> ibv_get_cq_event -> ibv_ack_cq_events seq -> ibv_req_notify_cq!!
    */
-  if (likely(resource->GetCompEvent())) { //检查是否有新的RDMA事件通知，如果有时间通知，进入处理逻辑
+  if (likely(resource->GetCompEvent())) { //检查是否有新的RDMA事件通知，如果有事件通知，进入处理逻辑
     do {
       ne = ibv_poll_cq(cq, MAX_CQ_EVENTS, wc);  //调用ibv_poll_cq从完成队列中轮询事件，最多获取MAX_CQ_EVENTS个事件
       if (unlikely(ne < 0)) { //如果轮询失败，记录错误日志并跳转到out标签 

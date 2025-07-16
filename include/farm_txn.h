@@ -47,7 +47,7 @@ static inline void rlock_version(version_t* v) {
 //将版本号的写锁位设置为1
 static inline void wlock_version(version_t* v) {
     version_t v1 = WLOCK;
-    *v |= (v1 << VBITS);
+    *v |= (v1 << VBITS); //通过位操作，将版本号的高8位中的读锁位设置为1.
 }
 //检查版本号的读锁位是否被设置
 static inline bool is_version_rlocked(version_t v) {
@@ -77,29 +77,51 @@ static inline bool is_version_diff(version_t before, version_t after) {
         return true;
     return false;//如果上述检查都通过，则返回false，表示版本号相同
 }
-
+/* 尝试为指定的对象加读锁rlock。如果对象已经被锁定(读锁或写锁)，则加锁失败，返回false。如果加锁成功，返回true。
+ * 参数：void* object - 指向要加锁的对象的指针。该对象的版本号和锁状态存储在一个version_t类型的变量中。
+ * 返回值：bool - 如果加锁成功返回true，否则返回false。
+*/
 static inline bool rlock_object(void* object) {
-    version_t ov, nv;
+    version_t ov, nv;  //表示对象的当前版本号(旧版本号)和目标版本号(新版本号)。
+    //version_t是一个64位无符号整数类型，用于存储对象的版本信息和锁状态。低56位存储版本号，高8位存储锁状态(读写锁)。
+    //使用原子操作加载对象的版本号ov，__atomic_load_n函数用于从指定的内存地址(object)加载一个version_t类型的值。
+    //__ATOMIC_RELAXED表示不需要保证操作的顺序性。无需同步或排序，仅保证原子性。
     ov = __atomic_load_n((version_t*)object,  __ATOMIC_RELAXED);
-    if (is_version_locked(ov))
+    if (is_version_locked(ov))//调用is_version_locked函数检查对象是否已被锁定(读锁或写锁)。
+        // 如果对象已经被锁定，则不能加读锁，返回false。 is_version_locked检查版本号的高8位是否设置了读锁或写锁标志。
         // rlock an object only if it is free
         return false;
-    nv = ov;
-    rlock_version(&nv);
+    nv = ov;//将当前版本号ov复制给目标版本号nv。为后续加锁操作准备目标版本号。
+    rlock_version(&nv); //调用rlock_version函数将目标版本号nv的读锁位设置为1。这样就表示要为该对象加读锁。 
+    /*尝试原子地更新版本号：使用原子比较并交换操作__atomic_compare_exchange_n尝试更新对象的版本号。如果对象的当前版本号ov
+    与加载的版本号一致，则将其更新为目标版本号nv。如果更新成功，则返回true；否则返回false。
+    参数：(version_t*)object：指向对象版本号的指针；
+    &ov：期望的旧版本号。nv：目标版本号； true：表示操作是弱比较交换(失败时不保证重试)。
+    __ATOMIC_RELAXED：内存顺序，表示无需同步或排序，仅保证原子性。*/
     return __atomic_compare_exchange_n((version_t*)object, &ov, nv, true,
             __ATOMIC_RELAXED, __ATOMIC_RELAXED);
 }
-
+/*尝试为指定对象加写锁wlock。
+参数：void *object：指向需要加锁的对象的指针。对象的版本号和锁状态存储在一个version_t类型的变量中。
+返回值：bool - 如果加锁成功返回true，否则返回false*/
 static inline bool wlock_object(void *object) {
+    /*定义两个变量：ov表示对象的当前版本号。nv：表示对象的目标版本号。
+    类型：version_t是一个uint_64类型的变量，其中低56位存储版本号。高8位存储锁状态*/
     version_t ov, nv;
+    /*使用原子操作加载对象的当前版本号ov。__atomic_load_n是GCC提供的原子操作，用于以指定的内存顺序加载值。
+    内存顺序：__ATOMIC_RELAXED表示无需同步或排序，仅保证原子性。*/
     ov = __atomic_load_n((version_t*)object, __ATOMIC_RELAXED);
-    epicAssert(is_version_rlocked(ov) && !is_version_wlocked(ov));
-    nv = ov;
-    runlock_version(&nv);
-    if (++nv == MAX_VERSION) {
-        nv == 1;
+    /*使用断言减产对象的锁状态：is_version_rlocked(ov)；检查你对象是否已经被加读锁。!is_version_wlocked(ov)：检查对象是否未被加写锁。
+    确保在加写锁之前，当前对象的状态是合法的。*/
+    epicAssert(is_version_rlocked(ov) && !is_version_wlocked(ov));//对象必须已被加读锁，但未被加写锁。
+    nv = ov;//将当前版本号赋值给目标版本号。为后续加锁操作准备目标版本号。
+    runlock_version(&nv);//调用runlock_version函数将目标版本号nv的读锁位清零。
+    //将目标版本号加1，如果版本号达到最大值MAX_VERSION，则重置为1.确保版本号在在加锁时递增，用于标识对象的最新状态。
+    if (++nv == MAX_VERSION) { 
+        //nv == 1;
+        nv = 1;
     }
-    wlock_version(&nv);
+    wlock_version(&nv);//调用wlock_version(&nv)，将目标版本号(nv)的写锁设置为1
     return __atomic_compare_exchange_n((version_t*)object, &ov, nv, true,
             __ATOMIC_RELAXED, __ATOMIC_RELAXED);
 }

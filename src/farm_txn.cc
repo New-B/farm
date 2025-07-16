@@ -205,7 +205,8 @@ Object* TxnContext::createWritableObject(GAddr addr) {//GAddr addr——全局�
   epicAssert(WID(addr) > 0); //使用断言检查地址的有效性，确保WID(addr)大于0
   if (write_set_[WID(addr)].count(addr) == 0) { //检查写集合中是否已经存在给定地址的对象。如果不存在，则继续执行创建过程。
     if ( read_set_[WID(addr)].count(addr) > 0) { //如果读集合中存在给定地址的对象，则共享该对象的所有权，将其添加到写集合中，避免重复创建对象，提高内存利用率
-      /* share the ownership of object */
+      /* share the ownership of object  将读集合中对应地址的对象的智能指针赋值给写集合中对应地址的对象。这一操作不涉及新对象的创建或内存的拷贝，
+      而是共享对象的所有权。*/
       this->write_set_[WID(addr)][addr] = this->read_set_[WID(addr)][addr];
     } else {  //如果读集合中不存在给定地址的对象，则创建一个新的对象，并将其添加到写集合中
       this->write_set_[WID(addr)][addr] =

@@ -130,8 +130,10 @@ int main(int argc, char* argv[]) {
         pthread_t threads[no_thread];
 
         // 启动线程
+        int thread_ids[no_thread];
         for (int i = 0; i < no_thread; ++i) {
-            if (pthread_create(&threads[i], nullptr, thread_func, nullptr) != 0) {
+            thread_ids[i] = i; // 设置线程 ID 
+            if (pthread_create(&threads[i], nullptr, thread_func, &thread_ids[i]) != 0) {
                 cerr << "Error: Failed to create thread " << i << endl;
                 exit(EXIT_FAILURE);
             }
